@@ -1300,6 +1300,7 @@ input.inline-edit:focus {
 .board-card__title {
   font-weight: 600;
   margin-bottom: var(--space-2);
+  overflow-wrap: break-word;
 }
 .board-card__meta {
   margin-top: var(--space-4);

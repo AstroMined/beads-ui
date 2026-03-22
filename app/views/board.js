@@ -176,9 +176,7 @@ export function createBoardView(
         @dragstart=${(/** @type {DragEvent} */ ev) => onDragStart(ev, it.id)}
         @dragend=${onDragEnd}
       >
-        <div class="board-card__title text-truncate">
-          ${it.title || '(no title)'}
-        </div>
+        <div class="board-card__title">${it.title || '(no title)'}</div>
         <div class="board-card__meta">
           ${createTypeBadge(it.issue_type)} ${createPriorityBadge(it.priority)}
           ${createIssueIdRenderer(it.id, { class_name: 'mono' })}
