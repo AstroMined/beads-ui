@@ -5,6 +5,7 @@ import { getConfig } from './config.js';
 import { resolveWorkspaceDatabase } from './db.js';
 import { debug, enableAllDebug } from './logging.js';
 import { registerWorkspace, watchRegistry } from './registry-watcher.js';
+import { loadSettings, watchSettings } from './settings.js';
 import { watchDb } from './watcher.js';
 import { attachWsServer } from './ws.js';
 
@@ -22,7 +23,9 @@ for (let i = 0; i < process.argv.length; i++) {
   }
 }
 
-const config = getConfig();
+// Load settings from ~/.beads/config.json before config resolution
+const settings = loadSettings();
+const config = getConfig(settings);
 const app = createApp(config);
 const server = createServer(app);
 const log = debug('server');
@@ -45,13 +48,22 @@ const db_watcher = watchDb(config.root_dir, () => {
   // v2: all updates flow via subscription push envelopes only
 });
 
-const { scheduleListRefresh } = attachWsServer(server, {
-  path: '/ws',
-  heartbeat_ms: 30000,
-  // Coalesce DB change bursts into one refresh run
-  refresh_debounce_ms: 75,
-  root_dir: config.root_dir,
-  watcher: db_watcher
+const { scheduleListRefresh, broadcastSettingsChanged } = attachWsServer(
+  server,
+  {
+    path: '/ws',
+    heartbeat_ms: 30000,
+    // Coalesce DB change bursts into one refresh run
+    refresh_debounce_ms: 75,
+    root_dir: config.root_dir,
+    watcher: db_watcher
+  }
+);
+
+// Watch settings file for changes and push to connected clients
+watchSettings((new_settings) => {
+  log('settings changed, broadcasting to clients');
+  broadcastSettingsChanged(new_settings);
 });
 
 // Watch the global registry for workspace changes (e.g., when user starts
