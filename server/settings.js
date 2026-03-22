@@ -92,6 +92,77 @@ export function getSettings() {
 }
 
 /**
+ * Watch ~/.beads/config.json for changes and invoke callback with new settings.
+ * Follows the registry-watcher.js pattern with debounce.
+ *
+ * @param {(settings: SettingsObject) => void} onChange
+ * @param {{ debounce_ms?: number }} [options]
+ * @returns {{ close: () => void }}
+ */
+export function watchSettings(onChange, options = {}) {
+  const debounce_ms = options.debounce_ms ?? 500;
+  const settings_dir = path.dirname(SETTINGS_PATH);
+  const settings_file = path.basename(SETTINGS_PATH);
+
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  /** @type {fs.FSWatcher | undefined} */
+  let watcher;
+
+  const schedule = () => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      try {
+        const previous = JSON.stringify(cached);
+        loadSettings();
+        if (JSON.stringify(cached) !== previous) {
+          onChange(cached);
+        }
+      } catch (err) {
+        log('error reading settings on change: %o', err);
+      }
+    }, debounce_ms);
+    timer.unref?.();
+  };
+
+  try {
+    if (!fs.existsSync(settings_dir)) {
+      log('settings directory does not exist: %s', settings_dir);
+      return { close() {} };
+    }
+
+    watcher = fs.watch(
+      settings_dir,
+      { persistent: true },
+      (event_type, filename) => {
+        if (filename && String(filename) !== settings_file) {
+          return;
+        }
+        if (event_type === 'change' || event_type === 'rename') {
+          log('settings %s %s', event_type, filename || '');
+          schedule();
+        }
+      }
+    );
+  } catch (err) {
+    log('unable to watch settings directory: %o', err);
+    return { close() {} };
+  }
+
+  return {
+    close() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      watcher?.close();
+    }
+  };
+}
+
+/**
  * Deep-merge user settings over defaults so missing keys fall back gracefully.
  *
  * @param {Record<string, unknown>} user
@@ -101,7 +172,7 @@ function mergeDefaults(user) {
   return {
     server: {
       ...DEFAULT_SETTINGS.server,
-      .../** @type {Record<string, unknown>} */ ((user.server) || {})
+      .../** @type {Record<string, unknown>} */ (user.server || {})
     },
     board: {
       columns: Array.isArray(/** @type {any} */ (user.board)?.columns)
@@ -110,7 +181,7 @@ function mergeDefaults(user) {
     },
     discovery: {
       ...DEFAULT_SETTINGS.discovery,
-      .../** @type {Record<string, unknown>} */ ((user.discovery) || {})
+      .../** @type {Record<string, unknown>} */ (user.discovery || {})
     }
   };
 }
