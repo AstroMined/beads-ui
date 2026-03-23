@@ -495,8 +495,12 @@ export function createBoardView(
     }
   }
 
-  // Delegate keyboard handling from mount_element
-  mount_element.addEventListener('keydown', (ev) => {
+  /**
+   * Keyboard handler for board navigation (delegated from mount_element).
+   *
+   * @param {KeyboardEvent} ev
+   */
+  function handleKeydown(ev) {
     const target = ev.target;
     if (!target || !(target instanceof HTMLElement)) {
       return;
@@ -592,14 +596,21 @@ export function createBoardView(
       }
       return;
     }
-  });
+  }
+
+  // Delegate keyboard handling from mount_element
+  mount_element.addEventListener('keydown', handleKeydown);
 
   // Track the currently highlighted column to avoid flicker
   /** @type {HTMLElement|null} */
   let current_drop_target = null;
 
-  // Delegate drag and drop handling for columns
-  mount_element.addEventListener('dragover', (ev) => {
+  /**
+   * Dragover handler: highlight target column during drag.
+   *
+   * @param {DragEvent} ev
+   */
+  function handleDragover(ev) {
     ev.preventDefault();
     if (ev.dataTransfer) {
       ev.dataTransfer.dropEffect = 'move';
@@ -620,9 +631,14 @@ export function createBoardView(
       col.classList.add('board-column--drag-over');
       current_drop_target = col;
     }
-  });
+  }
 
-  mount_element.addEventListener('dragleave', (ev) => {
+  /**
+   * Dragleave handler: clear highlight when leaving mount element.
+   *
+   * @param {DragEvent} ev
+   */
+  function handleDragleave(ev) {
     const related = /** @type {HTMLElement|null} */ (ev.relatedTarget);
     // Only clear if we're leaving the mount element entirely
     if (!related || !mount_element.contains(related)) {
@@ -631,9 +647,14 @@ export function createBoardView(
         current_drop_target = null;
       }
     }
-  });
+  }
 
-  mount_element.addEventListener('drop', (ev) => {
+  /**
+   * Drop handler: update issue status based on target column.
+   *
+   * @param {DragEvent} ev
+   */
+  function handleDrop(ev) {
     ev.preventDefault();
     // Clear the drop target highlight
     if (current_drop_target) {
@@ -665,7 +686,12 @@ export function createBoardView(
 
     log('drop %s on %s → %s', issue_id, col_el_id, new_status);
     void updateIssueStatus(issue_id, new_status);
-  });
+  }
+
+  // Delegate drag and drop handling for columns
+  mount_element.addEventListener('dragover', handleDragover);
+  mount_element.addEventListener('dragleave', handleDragleave);
+  mount_element.addEventListener('drop', handleDrop);
 
   /**
    * @param {HTMLElement} from
@@ -869,8 +895,10 @@ export function createBoardView(
   }
 
   // Live updates: recompose on issue store envelopes
+  /** @type {(() => void)|null} */
+  let unsub_selectors = null;
   if (selectors) {
-    selectors.subscribe(() => {
+    unsub_selectors = selectors.subscribe(() => {
       try {
         refreshFromStores();
       } catch {
@@ -975,6 +1003,19 @@ export function createBoardView(
       }
     },
     clear() {
+      // Unsubscribe from selectors to prevent leaked subscriptions
+      if (unsub_selectors) {
+        unsub_selectors();
+        unsub_selectors = null;
+      }
+      // Remove delegated event listeners to prevent accumulation on hot-reload
+      mount_element.removeEventListener('keydown', handleKeydown);
+      mount_element.removeEventListener('dragover', handleDragover);
+      mount_element.removeEventListener('dragleave', handleDragleave);
+      mount_element.removeEventListener('drop', handleDrop);
+      // Reset drag state
+      dragging_id = null;
+      current_drop_target = null;
       mount_element.replaceChildren();
       for (const col of col_defs) {
         column_data.set(col.id, []);
