@@ -1,6 +1,6 @@
 # beads-ui Enhancements PRD
 
-**Status:** Draft **Date:** 2026-03-22 (Phase 0 completed 2026-03-22)
+**Status:** Draft **Date:** 2026-03-22 (Phase 2 completed 2026-03-22)
 **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
@@ -217,20 +217,19 @@ board.columns schema)
 **Depends on:** Phase 0 (settings module for scan_roots and scan_depth
 configuration)
 
-- [ ] Discovery module (`server/discovery.js`) with
+- [x] Discovery module (`server/discovery.js`) with
       `scanForWorkspaces(roots, depth)` that walks directories looking for
       `.beads/` subdirectories containing `*.db` or `metadata.json` files,
       skipping `node_modules`, `.git`, and hidden directories
-- [ ] Integration into `server/registry-watcher.js`: modify
+- [x] Integration into `server/registry-watcher.js`: modify
       `getAvailableWorkspaces()` to merge registry entries with scan results,
       deduplicating by resolved absolute path
-- [ ] Auto-registration of discovered workspaces in the in-memory registry
+- [x] Auto-registration of discovered workspaces in the in-memory registry
       during server startup and when settings change (scan roots or depth
       updated)
-- [ ] Workspace picker enhancement in `app/views/nav.js` or workspace picker
-      component to show project name (directory basename) alongside path for
-      better readability
-- [ ] Unit tests for directory scanning (depth limiting, exclusion patterns,
+- [x] Workspace picker enhancement in `app/views/workspace-picker.js` to show
+      project name alongside path for better readability in dropdown
+- [x] Unit tests for directory scanning (depth limiting, exclusion patterns,
       deduplication with registry, metadata.json detection)
 
 ### Phase 3: Kanban Filters
@@ -399,13 +398,13 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 
 ### Phase 2
 
-- [ ] `npm test` passes with all discovery module tests
-- [ ] Starting server in `/code/` discovers projects in subdirectories (e.g.,
+- [x] `npm test` passes with all discovery module tests
+- [x] Starting server in `/code/` discovers projects in subdirectories (e.g.,
       beads-ui, skyauto-triage)
-- [ ] Discovered projects appear in workspace picker
-- [ ] Switching to a discovered workspace loads its issues correctly
-- [ ] Projects already in registry.json are not duplicated
-- [ ] Scan respects depth limit (does not recurse beyond configured depth)
+- [x] Discovered projects appear in workspace picker
+- [x] Switching to a discovered workspace loads its issues correctly
+- [x] Projects already in registry.json are not duplicated
+- [x] Scan respects depth limit (does not recurse beyond configured depth)
 
 ### Phase 3
 
@@ -460,15 +459,60 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 - **Test pattern**: Module-level `vi.mock('node:fs')` with `freshImport()` for
   state reset between tests, `vi.useFakeTimers()` for debounce testing
 
+## Phase 2 Outcomes
+
+### What Was Completed
+
+- Discovery module (`server/discovery.js`) with
+  `scanForWorkspaces(roots, depth)` using recursive `fs.readdirSync` with
+  `{ withFileTypes: true }`, skipping `node_modules`, `.git`, and hidden
+  directories, detecting `.beads/` subdirectories containing `*.db` or
+  `metadata.json`
+- Registry integration (`server/registry-watcher.js`) with
+  `getAvailableWorkspaces()` extended to accept optional `scanResults`
+  parameter, merging file-based registry, in-memory registrations, and scan
+  results with deduplication by resolved absolute path
+- Auto-registration on startup (`server/index.js`) scanning configured roots
+  after `loadSettings()` and registering discoveries before WebSocket server
+  setup
+- Settings change re-scan (`server/index.js`) comparing previous and new
+  discovery settings in the `watchSettings()` callback, triggering re-scan when
+  `scan_roots` or `scan_depth` change
+- Workspace picker enhancement (`app/views/workspace-picker.js`) showing
+  "ProjectName - /path" in dropdown options for multi-workspace scenarios
+- 11 unit tests in `server/discovery.test.js` covering depth limits, exclusion
+  patterns, nonexistent roots, empty roots, metadata.json detection, and
+  multi-root scanning
+- Parent field investigation: confirmed `bd list --json` includes `parent` field
+  on all issue types (task, epic, feature), containing parent ID for children
+  and null for root-level issues
+
+### Deviations from Plan
+
+- Workspace picker enhancement was in `app/views/workspace-picker.js` (not
+  `app/views/nav.js` as originally suggested in the PRD). The workspace picker
+  component was already extracted as a separate view module.
+
+### Key Patterns Established
+
+- **Directory scanning**: Recursive `walkDir()` with depth counter and
+  `shouldSkip()` filter, following the same `fs.readdirSync` with
+  `{ withFileTypes: true }` pattern used by `findNearestBeadsDb()` in
+  `server/db.js`
+- **Registry merge**: Three-source merge (file registry, in-memory, scan
+  results) with progressive deduplication using a `Set` of resolved paths
+- **Settings change detection**: Previous settings comparison using
+  `JSON.stringify` for arrays and direct comparison for scalars, triggering
+  re-scan only on actual changes
+
 ## Remaining Open Questions
 
-1. Does `bd list --json` output include the `parent` field for all issues? If
-   not, the Parent/Epic filter in Phase 3 may need an alternative data source.
-   (decide before Phase 3)
+(none)
 
 ## Resolved Questions
 
-| Question                                       | Decision              | Notes                                                                                                                                                     |
-| ---------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Should `in_review` be added to the bd CLI?     | No, already supported | bd CLI already accepts custom statuses including `in_review`. The UI just needs to query for it via `status-issues` subscription.                         |
-| Hot-reload vs page refresh on settings change? | Auto hot-reload       | Client tears down old subscriptions and rebuilds with new column definitions when `settings-changed` event arrives. Worth the complexity for polished UX. |
+| Question                                       | Decision              | Notes                                                                                                                                                                                                          |
+| ---------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Should `in_review` be added to the bd CLI?     | No, already supported | bd CLI already accepts custom statuses including `in_review`. The UI just needs to query for it via `status-issues` subscription.                                                                              |
+| Hot-reload vs page refresh on settings change? | Auto hot-reload       | Client tears down old subscriptions and rebuilds with new column definitions when `settings-changed` event arrives. Worth the complexity for polished UX.                                                      |
+| Does `bd list --json` include `parent` field?  | Yes, always present   | Confirmed in Phase 2 investigation: `parent` field present on all issue types (task, epic, feature). Contains parent ID for children, null for root-level. Phase 3 Parent/Epic filter is feasible as designed. |

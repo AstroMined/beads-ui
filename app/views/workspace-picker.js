@@ -97,7 +97,7 @@ export function createWorkspacePicker(mount_element, store, onWorkspaceChange) {
                 ?selected=${ws.path === current_path}
                 title="${ws.path}"
               >
-                ${getProjectName(ws.path)}
+                ${getProjectName(ws.path)} - ${ws.path}
               </option>
             `
           )}
