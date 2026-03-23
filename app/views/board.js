@@ -933,42 +933,46 @@ export function createBoardView(
           total_items += cnt('tab:board:' + col.id);
         }
         const data = /** @type {any} */ (_data);
+        /** @type {Record<string, string>} */
+        const subscription_methods = {
+          'ready-issues': 'getReady',
+          'blocked-issues': 'getBlocked',
+          'in-progress-issues': 'getInProgress',
+          'closed-issues': 'getClosed'
+        };
         const can_fetch =
           data &&
-          typeof data.getReady === 'function' &&
-          typeof data.getBlocked === 'function' &&
-          typeof data.getInProgress === 'function' &&
-          typeof data.getClosed === 'function';
+          col_defs.every((col) => {
+            const method = subscription_methods[col.subscription];
+            return !method || typeof data[method] === 'function';
+          });
         if (total_items === 0 && can_fetch) {
           log('fallback fetch');
-          /** @type {[IssueLite[], IssueLite[], IssueLite[], IssueLite[]]} */
-          const [ready_raw, blocked_raw, in_prog_raw, closed_raw] =
-            await Promise.all([
-              data.getReady().catch(() => []),
-              data.getBlocked().catch(() => []),
-              data.getInProgress().catch(() => []),
-              data.getClosed().catch(() => [])
-            ]);
-
           /** @type {Map<string, IssueLite[]>} */
-          const fallback_map = new Map([
-            [
-              'ready-issues',
-              Array.isArray(ready_raw) ? ready_raw.map((it) => it) : []
-            ],
-            [
-              'blocked-issues',
-              Array.isArray(blocked_raw) ? blocked_raw.map((it) => it) : []
-            ],
-            [
-              'in-progress-issues',
-              Array.isArray(in_prog_raw) ? in_prog_raw.map((it) => it) : []
-            ],
-            [
-              'closed-issues',
-              Array.isArray(closed_raw) ? closed_raw.map((it) => it) : []
-            ]
-          ]);
+          const fallback_map = new Map();
+          /** @type {Set<string>} */
+          const fetched_subs = new Set();
+          const fetch_promises = [];
+          for (const col of col_defs) {
+            if (fetched_subs.has(col.subscription)) {
+              continue;
+            }
+            const method = subscription_methods[col.subscription];
+            if (method && typeof data[method] === 'function') {
+              fetched_subs.add(col.subscription);
+              fetch_promises.push(
+                data[method]()
+                  .catch(() => [])
+                  .then((/** @type {IssueLite[]} */ raw) => {
+                    fallback_map.set(
+                      col.subscription,
+                      Array.isArray(raw) ? raw.slice() : []
+                    );
+                  })
+              );
+            }
+          }
+          await Promise.all(fetch_promises);
 
           // Collect in-progress IDs for ready filtering
           /** @type {Set<string>} */
@@ -981,7 +985,7 @@ export function createBoardView(
             if (col.subscription === 'ready-issues') {
               items = items.filter((i) => !in_progress_ids.has(i.id));
             }
-            if (col.subscription === 'closed-issues') {
+            if (col.drop_status === 'closed') {
               column_raw.set(col.id, items);
             } else {
               items.sort(cmpPriorityThenCreated);
