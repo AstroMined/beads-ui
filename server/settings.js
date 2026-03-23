@@ -115,6 +115,9 @@ export function watchSettings(onChange, options = {}) {
     }
     timer = setTimeout(() => {
       try {
+        // Change detection via JSON.stringify is key-order dependent: reordering
+        // keys in the JSON file without changing values will not trigger a change
+        // event. This is acceptable for the settings use case.
         const previous = JSON.stringify(cached);
         loadSettings();
         if (JSON.stringify(cached) !== previous) {
@@ -133,6 +136,8 @@ export function watchSettings(onChange, options = {}) {
       return { close() {} };
     }
 
+    // persistent:true keeps the Node.js process alive, which is intentional
+    // for a long-running server that should not exit when idle.
     watcher = fs.watch(
       settings_dir,
       { persistent: true },
