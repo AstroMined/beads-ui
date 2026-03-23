@@ -205,15 +205,56 @@ function mergeDefaults(user) {
     columns = valid.length > 0 ? /** @type {ColumnDefinition[]} */ (valid) : DEFAULT_SETTINGS.board.columns;
   }
 
+  const userServer = /** @type {Record<string, unknown>} */ (user.server || {});
+  const serverOverrides = { ...userServer };
+  if ('port' in serverOverrides) {
+    const p = serverOverrides.port;
+    if (!Number.isInteger(p) || /** @type {number} */ (p) < 1 || /** @type {number} */ (p) > 65535) {
+      log('rejected invalid port value, using default: %o', p);
+      delete serverOverrides.port;
+    }
+  }
+  if ('host' in serverOverrides) {
+    if (typeof serverOverrides.host !== 'string' || serverOverrides.host.length === 0) {
+      log('rejected invalid host value, using default: %o', serverOverrides.host);
+      delete serverOverrides.host;
+    }
+  }
+
+  const userDiscovery = /** @type {Record<string, unknown>} */ (user.discovery || {});
+  const discoveryOverrides = { ...userDiscovery };
+  if ('scan_roots' in discoveryOverrides) {
+    const roots = discoveryOverrides.scan_roots;
+    if (Array.isArray(roots)) {
+      const valid = roots.filter((r) => typeof r === 'string' && r.length > 0);
+      if (valid.length > 0) {
+        discoveryOverrides.scan_roots = valid;
+      } else {
+        log('rejected empty scan_roots after filtering, using default');
+        delete discoveryOverrides.scan_roots;
+      }
+    } else {
+      log('rejected invalid scan_roots (not an array), using default: %o', roots);
+      delete discoveryOverrides.scan_roots;
+    }
+  }
+  if ('scan_depth' in discoveryOverrides) {
+    const d = discoveryOverrides.scan_depth;
+    if (!Number.isInteger(d) || /** @type {number} */ (d) <= 0) {
+      log('rejected invalid scan_depth, using default: %o', d);
+      delete discoveryOverrides.scan_depth;
+    }
+  }
+
   return {
     server: {
       ...DEFAULT_SETTINGS.server,
-      .../** @type {Record<string, unknown>} */ (user.server || {})
+      .../** @type {Record<string, unknown>} */ (serverOverrides)
     },
     board: { columns },
     discovery: {
       ...DEFAULT_SETTINGS.discovery,
-      .../** @type {Record<string, unknown>} */ (user.discovery || {})
+      .../** @type {Record<string, unknown>} */ (discoveryOverrides)
     }
   };
 }
