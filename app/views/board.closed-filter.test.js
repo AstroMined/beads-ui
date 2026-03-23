@@ -71,14 +71,11 @@ describe('views/board closed filter', () => {
       issues
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores
-    );
+    });
     await view.load();
 
     // Default filter: Today → only C-3 visible

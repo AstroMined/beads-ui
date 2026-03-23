@@ -29,6 +29,19 @@ import { createTypeBadge } from '../utils/type-badge.js';
  * @property {string} subscription - Subscription type for data.
  * @property {Record<string, unknown>} [params] - Optional subscription parameters.
  * @property {string} drop_status - Status to set when a card is dropped.
+ * @property {boolean} [is_closed] - True if this column represents closed issues.
+ */
+
+/**
+ * @typedef {Object} BoardViewOptions
+ * @property {HTMLElement} mount_element
+ * @property {unknown} [data] - Legacy data layer for fallback fetch.
+ * @property {(id: string) => void} gotoIssue - Navigate to issue detail.
+ * @property {{ getState: () => any, setState: (patch: any) => void, subscribe?: (fn: (s:any)=>void)=>()=>void }} [store]
+ * @property {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
+ * @property {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
+ * @property {(type: string, payload: unknown) => Promise<unknown>} [transport] - Transport function for sending updates
+ * @property {ColumnDef[]} [columns] - Column definitions from settings
  */
 
 /**
@@ -39,30 +52,24 @@ import { createTypeBadge } from '../utils/type-badge.js';
  * - Closed columns: closed_at desc.
  * - All others: priority asc, then created_at asc.
  *
- * @param {HTMLElement} mount_element
- * @param {unknown} _data - Unused (legacy param retained for call-compat)
- * @param {(id: string) => void} gotoIssue - Navigate to issue detail.
- * @param {{ getState: () => any, setState: (patch: any) => void, subscribe?: (fn: (s:any)=>void)=>()=>void }} [store]
- * @param {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
- * @param {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
- * @param {(type: string, payload: unknown) => Promise<unknown>} [transport] - Transport function for sending updates
- * @param {ColumnDef[]} [columns] - Column definitions from settings
+ * @param {BoardViewOptions} options
  * @returns {{ load: () => Promise<void>, clear: () => void }}
  */
-export function createBoardView(
-  mount_element,
-  _data,
-  gotoIssue,
-  store,
-  subscriptions = undefined,
-  issueStores = undefined,
-  transport = undefined,
-  columns = undefined
-) {
+export function createBoardView(options) {
+  const {
+    mount_element,
+    data: _data,
+    gotoIssue,
+    store,
+    subscriptions,
+    issueStores,
+    transport,
+    columns
+  } = options;
   const log = debug('views:board');
 
   /** @type {ColumnDef[]} */
-  const col_defs =
+  const col_defs = (
     Array.isArray(columns) && columns.length > 0
       ? columns
       : [
@@ -70,27 +77,35 @@ export function createBoardView(
             id: 'blocked',
             label: 'Blocked',
             subscription: 'blocked-issues',
-            drop_status: 'open'
+            drop_status: 'open',
+            is_closed: false
           },
           {
             id: 'ready',
             label: 'Ready',
             subscription: 'ready-issues',
-            drop_status: 'open'
+            drop_status: 'open',
+            is_closed: false
           },
           {
             id: 'in-progress',
             label: 'In Progress',
             subscription: 'in-progress-issues',
-            drop_status: 'in_progress'
+            drop_status: 'in_progress',
+            is_closed: false
           },
           {
             id: 'closed',
             label: 'Closed',
             subscription: 'closed-issues',
-            drop_status: 'closed'
+            drop_status: 'closed',
+            is_closed: true
           }
-        ];
+        ]
+  ).map((col) => ({
+    ...col,
+    is_closed: col.is_closed ?? col.subscription === 'closed-issues'
+  }));
 
   /** @type {Map<string, IssueLite[]>} */
   const column_data = new Map();
@@ -98,7 +113,7 @@ export function createBoardView(
   const column_raw = new Map();
   for (const col of col_defs) {
     column_data.set(col.id, []);
-    if (col.subscription === 'closed-issues') {
+    if (col.is_closed) {
       column_raw.set(col.id, []);
     }
   }
@@ -300,7 +315,7 @@ export function createBoardView(
               ${item_count}
             </span>
           </div>
-          ${col.subscription === 'closed-issues'
+          ${col.is_closed
             ? html`<label class="board-closed-filter">
                 <span class="visually-hidden">Filter closed issues</span>
                 <select
@@ -735,7 +750,7 @@ export function createBoardView(
       since_ts = now.getTime() - 7 * 24 * 60 * 60 * 1000;
     }
     for (const col of col_defs) {
-      if (col.subscription !== 'closed-issues') {
+      if (!col.is_closed) {
         continue;
       }
       const raw = column_raw.get(col.id) || [];
@@ -865,7 +880,7 @@ export function createBoardView(
               col.id,
               items.filter((i) => !in_prog_ids.has(i.id))
             );
-          } else if (col.subscription === 'closed-issues') {
+          } else if (col.is_closed) {
             column_raw.set(col.id, items);
           } else {
             column_data.set(col.id, items);
@@ -1016,7 +1031,7 @@ export function createBoardView(
       mount_element.replaceChildren();
       for (const col of col_defs) {
         column_data.set(col.id, []);
-        if (col.subscription === 'closed-issues') {
+        if (col.is_closed) {
           column_raw.set(col.id, []);
         }
       }
