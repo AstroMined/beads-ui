@@ -154,7 +154,7 @@ export function bootstrap(root_element) {
     const unsub_board_map = new Map();
 
     /** @type {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>} */
-    let board_columns = [
+    const DEFAULT_COLUMNS = [
       {
         id: 'blocked',
         label: 'Blocked',
@@ -180,6 +180,48 @@ export function bootstrap(root_element) {
         drop_status: 'closed'
       }
     ];
+
+    /**
+     * Validate an array of column definitions from the server.
+     * Returns only valid entries. If none are valid, returns DEFAULT_COLUMNS.
+     *
+     * @param {unknown[]} cols
+     * @returns {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>}
+     */
+    function validateColumnDefs(cols) {
+      const valid = cols.filter((col) => {
+        if (!col || typeof col !== 'object' || Array.isArray(col)) {
+          return false;
+        }
+        const c = /** @type {Record<string, unknown>} */ (col);
+        return (
+          typeof c.id === 'string' &&
+          c.id.length > 0 &&
+          typeof c.label === 'string' &&
+          c.label.length > 0 &&
+          typeof c.subscription === 'string' &&
+          c.subscription.length > 0 &&
+          typeof c.drop_status === 'string' &&
+          c.drop_status.length > 0
+        );
+      });
+      if (valid.length === 0) {
+        log('all column definitions invalid, falling back to defaults');
+        return DEFAULT_COLUMNS;
+      }
+      if (valid.length < cols.length) {
+        log(
+          'filtered %d invalid column definitions, keeping %d valid',
+          cols.length - valid.length,
+          valid.length
+        );
+      }
+      return /** @type {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>} */ (
+        valid
+      );
+    }
+
+    let board_columns = DEFAULT_COLUMNS;
 
     // --- Workspace management ---
     /**
@@ -483,7 +525,7 @@ export function bootstrap(root_element) {
         p.settings.board &&
         Array.isArray(p.settings.board.columns)
       ) {
-        const new_cols = p.settings.board.columns;
+        const new_cols = validateColumnDefs(p.settings.board.columns);
         const old_key = JSON.stringify(board_columns);
         const new_key = JSON.stringify(new_cols);
         if (old_key !== new_key) {
@@ -535,7 +577,7 @@ export function bootstrap(root_element) {
           r.settings.board &&
           Array.isArray(r.settings.board.columns)
         ) {
-          const new_cols = r.settings.board.columns;
+          const new_cols = validateColumnDefs(r.settings.board.columns);
           const old_key = JSON.stringify(board_columns);
           const new_key = JSON.stringify(new_cols);
           if (old_key !== new_key) {
