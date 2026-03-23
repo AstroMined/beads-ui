@@ -733,9 +733,13 @@ describe('views/board', () => {
     expect(review_ids).toEqual(['V-1']);
 
     // Only closed column should have the filter dropdown
-    const closed_filter = mount.querySelector('#closed-col #closed-filter');
+    const closed_filter = mount.querySelector(
+      '#closed-col #closed-filter-closed'
+    );
     expect(closed_filter).not.toBeNull();
-    const review_filter = mount.querySelector('#in-review-col #closed-filter');
+    const review_filter = mount.querySelector(
+      '#in-review-col #closed-filter-in-review'
+    );
     expect(review_filter).toBeNull();
   });
 

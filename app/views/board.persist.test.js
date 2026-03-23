@@ -112,7 +112,7 @@ describe('views/board persisted closed filter via store', () => {
 
     // Select reflects persisted value
     const select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('#closed-filter')
+      mount.querySelector('#closed-filter-closed')
     );
     expect(select.value).toBe('7');
 

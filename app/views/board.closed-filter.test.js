@@ -89,7 +89,7 @@ describe('views/board closed filter', () => {
 
     // Change to Last 3 days → C-3 (today) and C-2 (yesterday)
     const select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('#closed-filter')
+      mount.querySelector('#closed-filter-closed')
     );
     select.value = '3';
     select.dispatchEvent(new Event('change', { bubbles: true }));
