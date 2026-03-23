@@ -230,19 +230,22 @@ export function bootstrap(root_element) {
      */
     async function clearAndResubscribe() {
       log('clearing all subscriptions for workspace switch');
-      // Unsubscribe from server-side subscriptions first
+      // Collect and await all unsubscribe promises before teardown
+      /** @type {Promise<void>[]} */
+      const unsub_promises = [];
       if (unsub_issues_tab) {
-        void unsub_issues_tab().catch(() => {});
+        unsub_promises.push(unsub_issues_tab().catch(() => {}));
         unsub_issues_tab = null;
       }
       if (unsub_epics_tab) {
-        void unsub_epics_tab().catch(() => {});
+        unsub_promises.push(unsub_epics_tab().catch(() => {}));
         unsub_epics_tab = null;
       }
       for (const [, unsub] of unsub_board_map) {
-        void unsub().catch(() => {});
+        unsub_promises.push(unsub().catch(() => {}));
       }
       unsub_board_map.clear();
+      await Promise.all(unsub_promises);
       // Clear all subscription stores
       /** @type {string[]} */
       const storeIds = ['tab:issues', 'tab:epics'];
