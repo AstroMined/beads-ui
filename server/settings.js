@@ -163,22 +163,54 @@ export function watchSettings(onChange, options = {}) {
 }
 
 /**
+ * Validate that a column definition has all required fields with correct types.
+ *
+ * @param {unknown} col
+ * @returns {col is ColumnDefinition}
+ */
+function validateColumnDef(col) {
+  if (!col || typeof col !== 'object') {
+    return false;
+  }
+  const c = /** @type {Record<string, unknown>} */ (col);
+  return (
+    typeof c.id === 'string' &&
+    c.id.length > 0 &&
+    typeof c.label === 'string' &&
+    c.label.length > 0 &&
+    typeof c.subscription === 'string' &&
+    c.subscription.length > 0 &&
+    typeof c.drop_status === 'string' &&
+    c.drop_status.length > 0
+  );
+}
+
+/**
  * Deep-merge user settings over defaults so missing keys fall back gracefully.
  *
  * @param {Record<string, unknown>} user
  * @returns {SettingsObject}
  */
 function mergeDefaults(user) {
+  let columns = DEFAULT_SETTINGS.board.columns;
+  if (Array.isArray(/** @type {any} */ (user.board)?.columns)) {
+    const raw = /** @type {unknown[]} */ (/** @type {any} */ (user.board).columns);
+    const valid = raw.filter((col) => {
+      if (!validateColumnDef(col)) {
+        log('rejected invalid column definition: %o', col);
+        return false;
+      }
+      return true;
+    });
+    columns = valid.length > 0 ? /** @type {ColumnDefinition[]} */ (valid) : DEFAULT_SETTINGS.board.columns;
+  }
+
   return {
     server: {
       ...DEFAULT_SETTINGS.server,
       .../** @type {Record<string, unknown>} */ (user.server || {})
     },
-    board: {
-      columns: Array.isArray(/** @type {any} */ (user.board)?.columns)
-        ? /** @type {any} */ (user.board).columns
-        : DEFAULT_SETTINGS.board.columns
-    },
+    board: { columns },
     discovery: {
       ...DEFAULT_SETTINGS.discovery,
       .../** @type {Record<string, unknown>} */ (user.discovery || {})
