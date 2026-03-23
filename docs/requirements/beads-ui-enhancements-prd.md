@@ -1,8 +1,9 @@
 # beads-ui Enhancements PRD
 
-**Status:** Remediation Pending **Date:** 2026-03-22 (Phase 0 completed
+**Status:** Remediation Pending **Date:** 2026-03-23 (Phase 0 completed
 2026-03-22, Phase 1 completed 2026-03-23, Phase 2 completed 2026-03-22,
-Phase 3 completed 2026-03-23) **Author:** Ryan Peterson **Related:**
+Phase 3 completed 2026-03-23, Phase R3 completed 2026-03-23) **Author:**
+Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
 > **Review Round 1**: 40 findings (1 critical, 4 major, 3 high, 8 medium, 7 minor, 8 low, 9 informational) across 4 remediation phases
@@ -735,37 +736,37 @@ code quality issues in app/views/board.js and app/state.js.
 
 #### Deliverables
 
-- [ ] M1: Store selectors.subscribe() unsubscribe function and call it in
+- [x] M1: Store selectors.subscribe() unsubscribe function and call it in
       clear() (`app/views/board.js:872-880`). Prevents ghost renders from
       orphaned closures on settings-change rebuild. (major)
-- [ ] M2: Remove 4 event listeners (keydown, dragover, dragleave, drop) on
+- [x] M2: Remove 4 event listeners (keydown, dragover, dragleave, drop) on
       mount_element in clear() (`app/views/board.js:499,602,625,636`).
       Prevents duplicate handlers accumulating on rebuild. (major)
-- [ ] M3: Fix subscriptionToMode to handle unknown subscription types
+- [x] M3: Fix subscriptionToMode to handle unknown subscription types
       correctly (`app/views/board.js:761-773`). Derive mode from column
       drop_status or ColumnDef rather than defaulting to 'ready'. (major)
-- [ ] M4: Normalize undefined to null in applyBoardFilters filter comparison
+- [x] M4: Normalize undefined to null in applyBoardFilters filter comparison
       (`app/views/board.js:796`). Prevent accidental filtering when
       board_filters state is partially constructed. (major)
-- [ ] Mi1: Use column ID in closed filter select element ID instead of
+- [x] Mi1: Use column ID in closed filter select element ID instead of
       hardcoded "closed-filter" (`app/views/board.js:306`). (minor)
-- [ ] Mi2: Replace em-dash with hyphen in aria-label string
+- [x] Mi2: Replace em-dash with hyphen in aria-label string
       (`app/views/board.js:484`). (minor)
-- [ ] Mi3: Update fallback fetch to handle dynamic column types, not just
+- [x] Mi3: Update fallback fetch to handle dynamic column types, not just
       legacy 4-method API (`app/views/board.js:914`). (minor)
-- [ ] Mi4: Replace identity .map((it) => it) with .slice()
+- [x] Mi4: Replace identity .map((it) => it) with .slice()
       (`app/views/board.js:936`). (minor)
-- [ ] Mi5: Move filter_options from module-level mutable to local variable
+- [x] Mi5: Move filter_options from module-level mutable to local variable
       or return value (`app/views/board.js:129-130`). (minor)
-- [ ] Mi6: Update setState JSDoc signature to include board and view fields
+- [x] Mi6: Update setState JSDoc signature to include board and view fields
       (`app/state.js:55`). (minor)
-- [ ] Mi7: Review shallow workspace comparison for deep change detection
+- [x] Mi7: Review shallow workspace comparison for deep change detection
       (`app/state.js:135-137`). (minor)
-- [ ] I1: Consider refactoring createBoardView from 8 positional params to
+- [x] I1: Consider refactoring createBoardView from 8 positional params to
       options object (`app/views/board.js`). (informational)
-- [ ] I2: Add debug logging in catch block that zeros columns on error
+- [x] I2: Add debug logging in catch block that zeros columns on error
       (`app/views/board.js`). (informational)
-- [ ] I3: Consider boolean is_closed flag on ColumnDef to replace string
+- [x] I3: Consider boolean is_closed flag on ColumnDef to replace string
       matching in 7 places (`app/views/board.js`). (informational)
 
 #### Decisions
@@ -778,11 +779,11 @@ code quality issues in app/views/board.js and app/state.js.
 
 #### Verification
 
-- [ ] `npm test` passes
-- [ ] `npm run tsc` passes
-- [ ] `npm run lint` passes
-- [ ] Settings hot-reload does not leak event listeners or subscriptions
-- [ ] Custom column types get correct sorting semantics
+- [x] `npm test` passes
+- [x] `npm run tsc` passes
+- [x] `npm run lint` passes
+- [x] Settings hot-reload does not leak event listeners or subscriptions
+- [x] Custom column types get correct sorting semantics
 
 ### Phase R4: Discovery and Registry Hardening
 
