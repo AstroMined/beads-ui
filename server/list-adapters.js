@@ -39,6 +39,13 @@ export function mapSubscriptionToBdArgs(spec) {
         '1000'
       ];
     }
+    case 'status-issues': {
+      const status = String((spec.params || {}).status || '').trim();
+      if (status.length === 0) {
+        throw badRequest('Missing param: params.status');
+      }
+      return ['list', '--json', '--tree=false', '--status', status];
+    }
     case 'issue-detail': {
       const p = spec.params || {};
       const id = String(p.id || '').trim();
