@@ -1,7 +1,7 @@
 # beads-ui Enhancements PRD
 
-**Status:** Draft **Date:** 2026-03-22 (Phase 0 completed 2026-03-22, Phase 1 completed 2026-03-23)
-**Author:** Ryan Peterson **Related:**
+**Status:** Draft **Date:** 2026-03-22 (Phase 0 completed 2026-03-22, Phase 1
+completed 2026-03-23) **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
 ## Context
@@ -465,7 +465,8 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 ### What Was Completed
 
 - Generic `status-issues` subscription type in `server/list-adapters.js` with
-  `params.status` parameter mapping to `bd list --json --tree=false --status <param>`
+  `params.status` parameter mapping to
+  `bd list --json --tree=false --status <param>`
 - Validator update in `server/validators.js` adding `status-issues` to
   `SUBSCRIPTION_TYPES` with non-empty `params.status` string validation
 - Board view refactor in `app/views/board.js`: replaced hardcoded
@@ -495,8 +496,8 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 - Tasks .2.4 (rendering), .2.8 (drag-drop), and .2.9 (closed filter) were
   naturally coupled with the board data model refactor in .2.3 and were
   implemented together in a single commit rather than as separate changes. This
-  was the correct decomposition since these concerns were tightly interleaved
-  in the original `board.js` code.
+  was the correct decomposition since these concerns were tightly interleaved in
+  the original `board.js` code.
 
 ### Key Patterns Established
 

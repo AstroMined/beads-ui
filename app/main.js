@@ -155,10 +155,30 @@ export function bootstrap(root_element) {
 
     /** @type {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>} */
     let board_columns = [
-      { id: 'blocked', label: 'Blocked', subscription: 'blocked-issues', drop_status: 'open' },
-      { id: 'ready', label: 'Ready', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'in-progress', label: 'In Progress', subscription: 'in-progress-issues', drop_status: 'in_progress' },
-      { id: 'closed', label: 'Closed', subscription: 'closed-issues', drop_status: 'closed' }
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
     ];
 
     // --- Workspace management ---
@@ -434,7 +454,12 @@ export function bootstrap(root_element) {
     client.on('settings-changed', (payload) => {
       log('settings-changed event: %o', payload);
       const p = /** @type {any} */ (payload);
-      if (p && p.settings && p.settings.board && Array.isArray(p.settings.board.columns)) {
+      if (
+        p &&
+        p.settings &&
+        p.settings.board &&
+        Array.isArray(p.settings.board.columns)
+      ) {
         const new_cols = p.settings.board.columns;
         const old_key = JSON.stringify(board_columns);
         const new_key = JSON.stringify(new_cols);
@@ -446,7 +471,11 @@ export function bootstrap(root_element) {
             try {
               sub_issue_stores.unregister(client_id);
             } catch (err) {
-              log('unregister %s on settings change failed: %o', client_id, err);
+              log(
+                'unregister %s on settings change failed: %o',
+                client_id,
+                err
+              );
             }
           }
           unsub_board_map.clear();
@@ -474,15 +503,25 @@ export function bootstrap(root_element) {
     });
 
     // Fetch initial settings from server
-    void transport('get-settings', {}).then((res) => {
-      const r = /** @type {any} */ (res);
-      if (r && r.settings && r.settings.board && Array.isArray(r.settings.board.columns)) {
-        board_columns = r.settings.board.columns;
-        log('loaded board columns from settings: %d columns', board_columns.length);
-      }
-    }).catch((err) => {
-      log('get-settings failed, using defaults: %o', err);
-    });
+    void transport('get-settings', {})
+      .then((res) => {
+        const r = /** @type {any} */ (res);
+        if (
+          r &&
+          r.settings &&
+          r.settings.board &&
+          Array.isArray(r.settings.board.columns)
+        ) {
+          board_columns = r.settings.board.columns;
+          log(
+            'loaded board columns from settings: %d columns',
+            board_columns.length
+          );
+        }
+      })
+      .catch((err) => {
+        log('get-settings failed, using defaults: %o', err);
+      });
 
     // Top navigation (optional mount)
     if (nav_mount) {
@@ -824,11 +863,17 @@ export function bootstrap(root_element) {
       if (s.view === 'board') {
         for (const col of board_columns) {
           const client_id = 'tab:board:' + col.id;
-          if (!unsub_board_map.has(client_id) && !pending_subscriptions.has(client_id)) {
+          if (
+            !unsub_board_map.has(client_id) &&
+            !pending_subscriptions.has(client_id)
+          ) {
             /** @type {{ type: string, params?: Record<string, string | number | boolean> }} */
             const spec = { type: col.subscription };
             if (col.params) {
-              spec.params = /** @type {Record<string, string | number | boolean>} */ (col.params);
+              spec.params =
+                /** @type {Record<string, string | number | boolean>} */ (
+                  col.params
+                );
             }
             try {
               sub_issue_stores.register(client_id, spec);

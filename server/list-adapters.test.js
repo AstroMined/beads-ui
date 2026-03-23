@@ -72,9 +72,9 @@ describe('list adapters for subscription types', () => {
   });
 
   test('mapSubscriptionToBdArgs throws on missing status param', () => {
-    expect(() =>
-      mapSubscriptionToBdArgs({ type: 'status-issues' })
-    ).toThrow(/Missing param: params\.status/);
+    expect(() => mapSubscriptionToBdArgs({ type: 'status-issues' })).toThrow(
+      /Missing param: params\.status/
+    );
   });
 
   test('mapSubscriptionToBdArgs throws on empty status param', () => {

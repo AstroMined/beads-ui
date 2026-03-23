@@ -60,14 +60,35 @@ export function createBoardView(
   const log = debug('views:board');
 
   /** @type {ColumnDef[]} */
-  const col_defs = Array.isArray(columns) && columns.length > 0
-    ? columns
-    : [
-        { id: 'blocked', label: 'Blocked', subscription: 'blocked-issues', drop_status: 'open' },
-        { id: 'ready', label: 'Ready', subscription: 'ready-issues', drop_status: 'open' },
-        { id: 'in-progress', label: 'In Progress', subscription: 'in-progress-issues', drop_status: 'in_progress' },
-        { id: 'closed', label: 'Closed', subscription: 'closed-issues', drop_status: 'closed' }
-      ];
+  const col_defs =
+    Array.isArray(columns) && columns.length > 0
+      ? columns
+      : [
+          {
+            id: 'blocked',
+            label: 'Blocked',
+            subscription: 'blocked-issues',
+            drop_status: 'open'
+          },
+          {
+            id: 'ready',
+            label: 'Ready',
+            subscription: 'ready-issues',
+            drop_status: 'open'
+          },
+          {
+            id: 'in-progress',
+            label: 'In Progress',
+            subscription: 'in-progress-issues',
+            drop_status: 'in_progress'
+          },
+          {
+            id: 'closed',
+            label: 'Closed',
+            subscription: 'closed-issues',
+            drop_status: 'closed'
+          }
+        ];
 
   /** @type {Map<string, IssueLite[]>} */
   const column_data = new Map();
@@ -105,8 +126,13 @@ export function createBoardView(
 
   function template() {
     return html`
-      <div class="panel__body board-root" style="--board-columns: ${col_defs.length}">
-        ${col_defs.map((col) => columnTemplate(col, column_data.get(col.id) || []))}
+      <div
+        class="panel__body board-root"
+        style="--board-columns: ${col_defs.length}"
+      >
+        ${col_defs.map((col) =>
+          columnTemplate(col, column_data.get(col.id) || [])
+        )}
       </div>
     `;
   }
@@ -488,7 +514,9 @@ export function createBoardView(
       log('drop on unknown column: %s', col_el_id);
       return;
     }
-    const new_status = /** @type {'open'|'in_progress'|'closed'} */ (col_def.drop_status);
+    const new_status = /** @type {'open'|'in_progress'|'closed'} */ (
+      col_def.drop_status
+    );
 
     const issue_id = ev.dataTransfer?.getData('text/plain');
     if (!issue_id) {
@@ -723,10 +751,22 @@ export function createBoardView(
 
           /** @type {Map<string, IssueLite[]>} */
           const fallback_map = new Map([
-            ['ready-issues', Array.isArray(ready_raw) ? ready_raw.map((it) => it) : []],
-            ['blocked-issues', Array.isArray(blocked_raw) ? blocked_raw.map((it) => it) : []],
-            ['in-progress-issues', Array.isArray(in_prog_raw) ? in_prog_raw.map((it) => it) : []],
-            ['closed-issues', Array.isArray(closed_raw) ? closed_raw.map((it) => it) : []]
+            [
+              'ready-issues',
+              Array.isArray(ready_raw) ? ready_raw.map((it) => it) : []
+            ],
+            [
+              'blocked-issues',
+              Array.isArray(blocked_raw) ? blocked_raw.map((it) => it) : []
+            ],
+            [
+              'in-progress-issues',
+              Array.isArray(in_prog_raw) ? in_prog_raw.map((it) => it) : []
+            ],
+            [
+              'closed-issues',
+              Array.isArray(closed_raw) ? closed_raw.map((it) => it) : []
+            ]
           ]);
 
           // Collect in-progress IDs for ready filtering

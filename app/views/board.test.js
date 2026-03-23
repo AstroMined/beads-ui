@@ -380,11 +380,37 @@ describe('views/board', () => {
 
     const now = Date.now();
     const columns = [
-      { id: 'blocked', label: 'Blocked', subscription: 'blocked-issues', drop_status: 'open' },
-      { id: 'ready', label: 'Ready', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'in-progress', label: 'In Progress', subscription: 'in-progress-issues', drop_status: 'in_progress' },
-      { id: 'in-review', label: 'In Review', subscription: 'status-issues', params: { status: 'in_review' }, drop_status: 'in_progress' },
-      { id: 'closed', label: 'Closed', subscription: 'closed-issues', drop_status: 'closed' }
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
     ];
 
     const issueStores = createTestIssueStores();
@@ -393,31 +419,71 @@ describe('views/board', () => {
       type: 'snapshot',
       id: 'tab:board:blocked',
       revision: 1,
-      issues: [{ id: 'B-1', title: 'b1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'B-1',
+          title: 'b1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
     issueStores.getStore('tab:board:ready').applyPush({
       type: 'snapshot',
       id: 'tab:board:ready',
       revision: 1,
-      issues: [{ id: 'R-1', title: 'r1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
     issueStores.getStore('tab:board:in-progress').applyPush({
       type: 'snapshot',
       id: 'tab:board:in-progress',
       revision: 1,
-      issues: [{ id: 'P-1', title: 'p1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'P-1',
+          title: 'p1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
     issueStores.getStore('tab:board:in-review').applyPush({
       type: 'snapshot',
       id: 'tab:board:in-review',
       revision: 1,
-      issues: [{ id: 'V-1', title: 'v1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'V-1',
+          title: 'v1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
     issueStores.getStore('tab:board:closed').applyPush({
       type: 'snapshot',
       id: 'tab:board:closed',
       revision: 1,
-      issues: [{ id: 'C-1', title: 'c1', updated_at: now, closed_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'C-1',
+          title: 'c1',
+          updated_at: now,
+          closed_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
 
     const view = createBoardView(
@@ -472,8 +538,19 @@ describe('views/board', () => {
 
     const now = Date.now();
     const columns = [
-      { id: 'ready', label: 'Ready', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'in-review', label: 'In Review', subscription: 'status-issues', params: { status: 'in_review' }, drop_status: 'in_progress' }
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      }
     ];
 
     const issueStores = createTestIssueStores();
@@ -481,7 +558,15 @@ describe('views/board', () => {
       type: 'snapshot',
       id: 'tab:board:ready',
       revision: 1,
-      issues: [{ id: 'T-1', title: 't1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'T-1',
+          title: 't1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
     issueStores.getStore('tab:board:in-review').applyPush({
       type: 'snapshot',
@@ -492,7 +577,10 @@ describe('views/board', () => {
 
     /** @type {Array<{id: string, status: string}>} */
     const status_updates = [];
-    const transport = async (/** @type {string} */ type, /** @type {any} */ payload) => {
+    const transport = async (
+      /** @type {string} */ type,
+      /** @type {any} */ payload
+    ) => {
       if (type === 'update-status') {
         status_updates.push({ id: payload.id, status: payload.status });
       }
@@ -535,9 +623,25 @@ describe('views/board', () => {
     const now = Date.now();
     const yesterday = now - 2 * 24 * 60 * 60 * 1000;
     const columns = [
-      { id: 'ready', label: 'Ready', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'in-review', label: 'In Review', subscription: 'status-issues', params: { status: 'in_review' }, drop_status: 'in_progress' },
-      { id: 'closed', label: 'Closed', subscription: 'closed-issues', drop_status: 'closed' }
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
     ];
 
     const issueStores = createTestIssueStores();
@@ -546,8 +650,20 @@ describe('views/board', () => {
       id: 'tab:board:ready',
       revision: 1,
       issues: [
-        { id: 'R-1', title: 'r1', created_at: now, updated_at: now, issue_type: 'task' },
-        { id: 'R-2', title: 'r2', created_at: now - 1, updated_at: now - 1, issue_type: 'task' }
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'task'
+        }
       ]
     });
     issueStores.getStore('tab:board:in-review').applyPush({
@@ -555,7 +671,13 @@ describe('views/board', () => {
       id: 'tab:board:in-review',
       revision: 1,
       issues: [
-        { id: 'V-1', title: 'v1', created_at: now, updated_at: now, issue_type: 'task' }
+        {
+          id: 'V-1',
+          title: 'v1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
       ]
     });
     issueStores.getStore('tab:board:closed').applyPush({
@@ -563,8 +685,20 @@ describe('views/board', () => {
       id: 'tab:board:closed',
       revision: 1,
       issues: [
-        { id: 'C-1', title: 'today', updated_at: now, closed_at: now, issue_type: 'task' },
-        { id: 'C-2', title: 'old', updated_at: yesterday, closed_at: yesterday, issue_type: 'task' }
+        {
+          id: 'C-1',
+          title: 'today',
+          updated_at: now,
+          closed_at: now,
+          issue_type: 'task'
+        },
+        {
+          id: 'C-2',
+          title: 'old',
+          updated_at: yesterday,
+          closed_at: yesterday,
+          issue_type: 'task'
+        }
       ]
     });
 
@@ -611,9 +745,24 @@ describe('views/board', () => {
 
     const now = Date.now();
     const columns = [
-      { id: 'col-a', label: 'A', subscription: 'blocked-issues', drop_status: 'open' },
-      { id: 'col-b', label: 'B', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'col-c', label: 'C', subscription: 'in-progress-issues', drop_status: 'in_progress' }
+      {
+        id: 'col-a',
+        label: 'A',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'col-b',
+        label: 'B',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'col-c',
+        label: 'C',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      }
     ];
 
     const issueStores = createTestIssueStores();
@@ -621,7 +770,15 @@ describe('views/board', () => {
       type: 'snapshot',
       id: 'tab:board:col-a',
       revision: 1,
-      issues: [{ id: 'A-1', title: 'a1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'A-1',
+          title: 'a1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
     issueStores.getStore('tab:board:col-b').applyPush({
       type: 'snapshot',
@@ -633,7 +790,15 @@ describe('views/board', () => {
       type: 'snapshot',
       id: 'tab:board:col-c',
       revision: 1,
-      issues: [{ id: 'C-1', title: 'c1', created_at: now, updated_at: now, issue_type: 'task' }]
+      issues: [
+        {
+          id: 'C-1',
+          title: 'c1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
     });
 
     const view = createBoardView(

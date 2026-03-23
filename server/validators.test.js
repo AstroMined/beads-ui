@@ -24,7 +24,9 @@ describe('validators', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.code).toBe('bad_request');
-        expect(result.message).toMatch(/status-issues requires non-empty params\.status/);
+        expect(result.message).toMatch(
+          /status-issues requires non-empty params\.status/
+        );
       }
     });
 
@@ -37,7 +39,9 @@ describe('validators', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.code).toBe('bad_request');
-        expect(result.message).toMatch(/status-issues requires non-empty params\.status/);
+        expect(result.message).toMatch(
+          /status-issues requires non-empty params\.status/
+        );
       }
     });
 

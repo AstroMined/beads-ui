@@ -87,7 +87,7 @@ export function validateSubscribeListPayload(payload) {
     const params_obj =
       typeof any.params === 'object' && any.params ? any.params : {};
     const status =
-      typeof /** @type {any} */ (params_obj).status === 'string'
+      typeof (/** @type {any} */ (params_obj).status) === 'string'
         ? /** @type {any} */ (params_obj).status.trim()
         : '';
     if (status.length === 0) {
