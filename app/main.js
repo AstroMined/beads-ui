@@ -110,42 +110,27 @@ export function bootstrap(root_element) {
     // Per-subscription stores (source of truth)
     const sub_issue_stores = createSubscriptionIssueStores();
     // Route per-subscription push envelopes to the owning store
-    client.on('snapshot', (payload) => {
+    /**
+     * Handle a push event by routing it to the matching subscription store.
+     *
+     * @param {string} event_name
+     * @param {unknown} payload
+     */
+    function handlePushEvent(event_name, payload) {
       const p = /** @type {any} */ (payload);
       const id = p && typeof p.id === 'string' ? p.id : '';
-      const store = id ? sub_issue_stores.getStore(id) : null;
-      if (store && p && p.type === 'snapshot') {
+      const s = id ? sub_issue_stores.getStore(id) : null;
+      if (s && p && p.type === event_name) {
         try {
-          store.applyPush(p);
-        } catch {
-          // ignore
+          s.applyPush(p);
+        } catch (err) {
+          log('push %s error for subscription %s: %o', event_name, id, err);
         }
       }
-    });
-    client.on('upsert', (payload) => {
-      const p = /** @type {any} */ (payload);
-      const id = p && typeof p.id === 'string' ? p.id : '';
-      const store = id ? sub_issue_stores.getStore(id) : null;
-      if (store && p && p.type === 'upsert') {
-        try {
-          store.applyPush(p);
-        } catch {
-          // ignore
-        }
-      }
-    });
-    client.on('delete', (payload) => {
-      const p = /** @type {any} */ (payload);
-      const id = p && typeof p.id === 'string' ? p.id : '';
-      const store = id ? sub_issue_stores.getStore(id) : null;
-      if (store && p && p.type === 'delete') {
-        try {
-          store.applyPush(p);
-        } catch {
-          // ignore
-        }
-      }
-    });
+    }
+    client.on('snapshot', (payload) => handlePushEvent('snapshot', payload));
+    client.on('upsert', (payload) => handlePushEvent('upsert', payload));
+    client.on('delete', (payload) => handlePushEvent('delete', payload));
     // Derived list selectors: render from per-subscription snapshots
     const listSelectors = createListSelectors(sub_issue_stores);
 
