@@ -1,8 +1,8 @@
 # beads-ui Enhancements PRD
 
-**Status:** Complete **Date:** 2026-03-22 (Phase 0 completed 2026-03-22, Phase 1
-completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3 completed
-2026-03-23) **Author:** Ryan Peterson **Related:**
+**Status:** Archived (2026-03-23) **Date:** 2026-03-22 (Phase 0 completed
+2026-03-22, Phase 1 completed 2026-03-23, Phase 2 completed 2026-03-22,
+Phase 3 completed 2026-03-23) **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
 ## Context
