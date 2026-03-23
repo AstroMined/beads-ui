@@ -52,7 +52,7 @@ const DEFAULT_BOARD_FILTERS = { parent: null, assignee: null, type: null };
  * Create a simple store for application state.
  *
  * @param {Partial<AppState>} [initial]
- * @returns {{ getState: () => AppState, setState: (patch: { selected_id?: string | null, filters?: Partial<Filters>, workspace?: Partial<WorkspaceState> }) => void, subscribe: (fn: (s: AppState) => void) => () => void }}
+ * @returns {{ getState: () => AppState, setState: (patch: { selected_id?: string | null, view?: ViewName, filters?: Partial<Filters>, board?: Partial<BoardState & { board_filters?: Partial<BoardFilters> }>, workspace?: Partial<WorkspaceState> }) => void, subscribe: (fn: (s: AppState) => void) => () => void }}
  */
 export function createStore(initial = {}) {
   const log = debug('state');
@@ -104,7 +104,7 @@ export function createStore(initial = {}) {
     /**
      * Update state. Nested filters can be partial.
      *
-     * @param {{ selected_id?: string | null, filters?: Partial<Filters>, board?: Partial<BoardState & { board_filters?: Partial<BoardFilters> }>, workspace?: Partial<WorkspaceState> }} patch
+     * @param {{ selected_id?: string | null, view?: ViewName, filters?: Partial<Filters>, board?: Partial<BoardState & { board_filters?: Partial<BoardFilters> }>, workspace?: Partial<WorkspaceState> }} patch
      */
     setState(patch) {
       /** @type {AppState} */
@@ -134,7 +134,11 @@ export function createStore(initial = {}) {
       // Avoid emitting if nothing changed (shallow compare)
       const workspace_changed =
         next.workspace.current?.path !== state.workspace.current?.path ||
-        next.workspace.available.length !== state.workspace.available.length;
+        next.workspace.current?.database !==
+          state.workspace.current?.database ||
+        next.workspace.available.length !== state.workspace.available.length ||
+        JSON.stringify(next.workspace.available.map((w) => w.path)) !==
+          JSON.stringify(state.workspace.available.map((w) => w.path));
       const board_filters_changed =
         next.board.board_filters.parent !== state.board.board_filters.parent ||
         next.board.board_filters.assignee !==
