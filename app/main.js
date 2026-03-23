@@ -535,11 +535,53 @@ export function bootstrap(root_element) {
           r.settings.board &&
           Array.isArray(r.settings.board.columns)
         ) {
-          board_columns = r.settings.board.columns;
-          log(
-            'loaded board columns from settings: %d columns',
-            board_columns.length
-          );
+          const new_cols = r.settings.board.columns;
+          const old_key = JSON.stringify(board_columns);
+          const new_key = JSON.stringify(new_cols);
+          if (old_key !== new_key) {
+            log(
+              'loaded board columns from settings: %d columns (changed from defaults)',
+              new_cols.length
+            );
+            // Tear down existing board subscriptions
+            for (const [client_id, unsub] of unsub_board_map) {
+              void unsub().catch(() => {});
+              try {
+                sub_issue_stores.unregister(client_id);
+              } catch (err) {
+                log(
+                  'unregister %s on initial settings load failed: %o',
+                  client_id,
+                  err
+                );
+              }
+            }
+            unsub_board_map.clear();
+            // Update column definitions
+            board_columns = new_cols;
+            // Re-create board view with new columns
+            board_view = createBoardView(
+              board_root,
+              data,
+              (id) => router.gotoIssue(id),
+              store,
+              subscriptions,
+              sub_issue_stores,
+              transport,
+              board_columns
+            );
+            // If board is active, re-subscribe and load with server columns
+            const s = store.getState();
+            if (s && s.view === 'board') {
+              ensureTabSubscriptions(s);
+              void board_view.load();
+            }
+          } else {
+            log(
+              'loaded board columns from settings: %d columns (match defaults)',
+              new_cols.length
+            );
+          }
         }
       })
       .catch((err) => {
