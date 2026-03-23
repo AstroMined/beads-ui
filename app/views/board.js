@@ -127,7 +127,7 @@ export function createBoardView(
   }
 
   /** @type {{ parents: string[], assignees: string[], types: string[] }} */
-  let filter_options = { parents: [], assignees: [], types: [] };
+  let last_filter_options = { parents: [], assignees: [], types: [] };
 
   /**
    * Scan all column_data Map entries for unique filter values.
@@ -180,8 +180,10 @@ export function createBoardView(
 
   /**
    * Render the filter bar with three select dropdowns above the board grid.
+   *
+   * @param {{ parents: string[], assignees: string[], types: string[] }} filter_options
    */
-  function filterBarTemplate() {
+  function filterBarTemplate(filter_options) {
     const board_state = store ? store.getState().board : null;
     const current = board_state?.board_filters || {
       parent: null,
@@ -264,7 +266,7 @@ export function createBoardView(
 
   function template() {
     return html`
-      ${filterBarTemplate()}
+      ${filterBarTemplate(last_filter_options)}
       <div
         class="panel__body board-root"
         style="--board-columns: ${col_defs.length}"
@@ -770,7 +772,7 @@ export function createBoardView(
         }
       }
       applyClosedFilter();
-      filter_options = getFilterOptions();
+      last_filter_options = getFilterOptions();
       applyBoardFilters();
       doRender();
     } catch {
@@ -801,21 +803,21 @@ export function createBoardView(
       type: null
     };
     const has_filter =
-      (filters.parent !== null && filters.parent !== undefined) ||
-      (filters.assignee !== null && filters.assignee !== undefined) ||
-      (filters.type !== null && filters.type !== undefined);
+      filters.parent != null ||
+      filters.assignee != null ||
+      filters.type != null;
     if (!has_filter) {
       return;
     }
     for (const [col_id, items] of column_data) {
       const filtered = items.filter((it) => {
-        if (filters.parent !== null && it.parent !== filters.parent) {
+        if (filters.parent != null && it.parent !== filters.parent) {
           return false;
         }
-        if (filters.assignee !== null && it.assignee !== filters.assignee) {
+        if (filters.assignee != null && it.assignee !== filters.assignee) {
           return false;
         }
-        if (filters.type !== null && it.issue_type !== filters.type) {
+        if (filters.type != null && it.issue_type !== filters.type) {
           return false;
         }
         return true;
@@ -873,7 +875,7 @@ export function createBoardView(
       applyClosedFilter();
       // Compute filter options BEFORE applying board filters
       // so dropdowns show all available values
-      filter_options = getFilterOptions();
+      last_filter_options = getFilterOptions();
       applyBoardFilters();
       doRender();
     } catch {
