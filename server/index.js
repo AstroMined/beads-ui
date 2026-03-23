@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import path from 'node:path';
 import { createApp } from './app.js';
 import { printServerUrl } from './cli/daemon.js';
 import { getConfig } from './config.js';
@@ -55,11 +56,13 @@ if (workspace_database.source !== 'home-default' && workspace_database.exists) {
 function discoverAndRegister(roots, depth) {
   const discovered = scanForWorkspaces(roots, depth);
   const existing = getAvailableWorkspaces();
-  const existing_paths = new Set(existing.map((w) => w.path));
+  const existing_paths = new Set(existing.map((w) => path.resolve(w.path)));
   let registered = 0;
   for (const ws of discovered) {
-    if (!existing_paths.has(ws.workspace_path)) {
-      registerWorkspace({ path: ws.workspace_path, database: '' });
+    const resolved = path.resolve(ws.workspace_path);
+    if (!existing_paths.has(resolved)) {
+      const db = resolveWorkspaceDatabase({ cwd: resolved });
+      registerWorkspace({ path: resolved, database: db.exists ? db.path : '' });
       registered++;
     }
   }
