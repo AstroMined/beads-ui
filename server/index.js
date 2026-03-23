@@ -125,7 +125,7 @@ let prev_scan_roots = JSON.stringify(settings.discovery.scan_roots || []);
 let prev_scan_depth = settings.discovery.scan_depth ?? 2;
 
 // Watch settings file for changes and push to connected clients
-watchSettings(async (new_settings) => {
+const settings_watcher = watchSettings(async (new_settings) => {
   log('settings changed, broadcasting to clients');
   broadcastSettingsChanged(new_settings);
 
@@ -145,15 +145,24 @@ watchSettings(async (new_settings) => {
 
 // Watch the global registry for workspace changes (e.g., when user starts
 // bd daemon in a different project). This enables automatic workspace switching.
-watchRegistry(
+const registry_watcher = watchRegistry(
   (entries) => {
-    log('registry changed: %d entries', entries.length);
-    // Find if there's a newer workspace that matches our initial root
-    // For now, we just log the change - users can switch via set-workspace
-    // Future: could auto-switch if a workspace was started in a parent/child dir
+    log('registry changed: %d entries, refreshing client lists', entries.length);
+    scheduleListRefresh();
   },
   { debounce_ms: 500 }
 );
+
+// Graceful shutdown: close all watchers and the HTTP server
+function shutdown() {
+  log('shutting down');
+  db_watcher.close();
+  settings_watcher.close();
+  registry_watcher.close();
+  server.close();
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 server.listen(config.port, config.host, () => {
   printServerUrl();
