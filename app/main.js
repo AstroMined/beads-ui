@@ -439,8 +439,36 @@ export function bootstrap(root_element) {
         const old_key = JSON.stringify(board_columns);
         const new_key = JSON.stringify(new_cols);
         if (old_key !== new_key) {
-          log('board columns changed, will rebuild on next board view');
+          log('board columns changed, rebuilding');
+          // Tear down existing board subscriptions
+          for (const [client_id, unsub] of unsub_board_map) {
+            void unsub().catch(() => {});
+            try {
+              sub_issue_stores.unregister(client_id);
+            } catch (err) {
+              log('unregister %s on settings change failed: %o', client_id, err);
+            }
+          }
+          unsub_board_map.clear();
+          // Update column definitions
           board_columns = new_cols;
+          // Re-create board view with new columns
+          board_view = createBoardView(
+            board_root,
+            data,
+            (id) => router.gotoIssue(id),
+            store,
+            subscriptions,
+            sub_issue_stores,
+            transport,
+            board_columns
+          );
+          // If board is active, re-subscribe and load
+          const s = store.getState();
+          if (s && s.view === 'board') {
+            ensureTabSubscriptions(s);
+            void board_view.load();
+          }
         }
       }
     });
@@ -656,7 +684,7 @@ export function bootstrap(root_element) {
       subscriptions,
       sub_issue_stores
     );
-    const board_view = createBoardView(
+    let board_view = createBoardView(
       board_root,
       data,
       (id) => router.gotoIssue(id),
