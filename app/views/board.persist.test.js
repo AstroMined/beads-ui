@@ -94,14 +94,12 @@ describe('views/board persisted closed filter via store', () => {
       }
     };
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       store,
-      undefined,
       issueStores
-    );
+    });
     await view.load();
 
     // With persisted '7' days, B and C visible (A is 8 days old)

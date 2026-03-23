@@ -150,16 +150,13 @@ describe('views/board', () => {
 
     /** @type {string[]} */
     const navigations = [];
-    const view = createBoardView(
-      mount,
-      null,
-      (id) => {
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: (id) => {
         navigations.push(id);
       },
-      undefined,
-      undefined,
       issueStores
-    );
+    });
 
     await view.load();
 
@@ -279,14 +276,11 @@ describe('views/board', () => {
       ]
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores
-    );
+    });
 
     await view.load();
 
@@ -350,14 +344,11 @@ describe('views/board', () => {
       issues: issues.filter((i) => i.id.startsWith('X-2'))
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores
-    );
+    });
 
     await view.load();
 
@@ -486,16 +477,12 @@ describe('views/board', () => {
       ]
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores,
-      undefined,
       columns
-    );
+    });
 
     await view.load();
 
@@ -586,16 +573,13 @@ describe('views/board', () => {
       }
     };
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores,
       transport,
       columns
-    );
+    });
 
     await view.load();
 
@@ -702,16 +686,12 @@ describe('views/board', () => {
       ]
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores,
-      undefined,
       columns
-    );
+    });
 
     await view.load();
 
@@ -805,16 +785,12 @@ describe('views/board', () => {
       ]
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores,
-      undefined,
       columns
-    );
+    });
 
     await view.load();
 
@@ -880,14 +856,11 @@ describe('views/board', () => {
       issues: []
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores
-    );
+    });
     await view.load();
 
     // Filter bar should render above the board grid
@@ -988,14 +961,11 @@ describe('views/board', () => {
       ]
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores
-    );
+    });
     await view.load();
 
     // Parent dropdown options (sorted alphabetically)
@@ -1129,14 +1099,12 @@ describe('views/board', () => {
       issues: []
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       store,
-      undefined,
       issueStores
-    );
+    });
     await view.load();
 
     // Initially all visible
@@ -1270,14 +1238,12 @@ describe('views/board', () => {
       issues: []
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       store,
-      undefined,
       issueStores
-    );
+    });
     await view.load();
 
     // Apply type=task AND parent=epic-1 (should only match R-1)
@@ -1392,14 +1358,12 @@ describe('views/board', () => {
       issues: []
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       store,
-      undefined,
       issueStores
-    );
+    });
     await view.load();
 
     // With assignee=alice filter, only R-1 visible
@@ -1510,14 +1474,12 @@ describe('views/board', () => {
       issues: []
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       store,
-      undefined,
       issueStores
-    );
+    });
     await view.load();
 
     // Even though type=task filter is active, the type dropdown
@@ -1695,16 +1657,13 @@ describe('views/board', () => {
       ]
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       store,
-      undefined,
       issueStores,
-      undefined,
       columns
-    );
+    });
     await view.load();
 
     // All 5 columns rendered
