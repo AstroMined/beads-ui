@@ -82,12 +82,13 @@ describe('settings bootstrap (C1)', () => {
     const root = /** @type {HTMLElement} */ (document.getElementById('app'));
 
     bootstrap(root);
-    // Allow get-settings promise and route change to resolve
-    await new Promise((r) => setTimeout(r, 50));
+    // Flush microtasks for get-settings promise and route change
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(3);
+    });
 
     // Board should have three columns from server settings, not default four
     const columns = root.querySelectorAll('.board-column');
-    expect(columns.length).toBe(3);
 
     // Verify server column IDs are used
     const col_ids = Array.from(columns).map((c) => c.id);
@@ -109,10 +110,9 @@ describe('settings-changed hot-reload', () => {
     const root = /** @type {HTMLElement} */ (document.getElementById('app'));
 
     bootstrap(root);
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Should start with 3 server columns
-    expect(root.querySelectorAll('.board-column').length).toBe(3);
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(3);
+    });
 
     // Hot-reload with 2 columns
     client._trigger('settings-changed', {
@@ -125,9 +125,8 @@ describe('settings-changed hot-reload', () => {
         }
       }
     });
-    await new Promise((r) => setTimeout(r, 50));
-
-    const columns = root.querySelectorAll('.board-column');
-    expect(columns.length).toBe(2);
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(2);
+    });
   });
 });

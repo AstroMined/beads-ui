@@ -503,8 +503,32 @@ export function bootstrap(root_element) {
       }
     };
 
+    /**
+     * Tear down all active board subscriptions, awaiting server-side
+     * unsubscribe completion before clearing local stores.
+     *
+     * @param {string} context - Caller label for log messages
+     * @returns {Promise<void>}
+     */
+    async function teardownBoardSubscriptions(context) {
+      /** @type {Promise<void>[]} */
+      const unsub_promises = [];
+      for (const [, unsub] of unsub_board_map) {
+        unsub_promises.push(unsub().catch(() => {}));
+      }
+      await Promise.all(unsub_promises);
+      for (const [client_id] of unsub_board_map) {
+        try {
+          sub_issue_stores.unregister(client_id);
+        } catch (err) {
+          log('unregister %s on %s failed: %o', client_id, context, err);
+        }
+      }
+      unsub_board_map.clear();
+    }
+
     // Settings-changed: update board columns when config changes
-    client.on('settings-changed', (payload) => {
+    client.on('settings-changed', async (payload) => {
       log('settings-changed event: %o', payload);
       const p = /** @type {any} */ (payload);
       if (
@@ -518,20 +542,7 @@ export function bootstrap(root_element) {
         const new_key = JSON.stringify(new_cols);
         if (old_key !== new_key) {
           log('board columns changed, rebuilding');
-          // Tear down existing board subscriptions
-          for (const [client_id, unsub] of unsub_board_map) {
-            void unsub().catch(() => {});
-            try {
-              sub_issue_stores.unregister(client_id);
-            } catch (err) {
-              log(
-                'unregister %s on settings change failed: %o',
-                client_id,
-                err
-              );
-            }
-          }
-          unsub_board_map.clear();
+          await teardownBoardSubscriptions('settings change');
           // Update column definitions
           board_columns = new_cols;
           // Re-create board view with new columns
@@ -557,7 +568,7 @@ export function bootstrap(root_element) {
 
     // Fetch initial settings from server
     void transport('get-settings', {})
-      .then((res) => {
+      .then(async (res) => {
         const r = /** @type {any} */ (res);
         if (
           r &&
@@ -573,20 +584,7 @@ export function bootstrap(root_element) {
               'loaded board columns from settings: %d columns (changed from defaults)',
               new_cols.length
             );
-            // Tear down existing board subscriptions
-            for (const [client_id, unsub] of unsub_board_map) {
-              void unsub().catch(() => {});
-              try {
-                sub_issue_stores.unregister(client_id);
-              } catch (err) {
-                log(
-                  'unregister %s on initial settings load failed: %o',
-                  client_id,
-                  err
-                );
-              }
-            }
-            unsub_board_map.clear();
+            await teardownBoardSubscriptions('initial settings load');
             // Update column definitions
             board_columns = new_cols;
             // Re-create board view with new columns
