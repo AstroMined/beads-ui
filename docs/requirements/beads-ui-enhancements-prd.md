@@ -1,7 +1,8 @@
 # beads-ui Enhancements PRD
 
-**Status:** Draft **Date:** 2026-03-22 (Phase 0 completed 2026-03-22, Phase 1
-completed 2026-03-23, Phase 2 completed 2026-03-22)
+**Status:** Remediation Pending **Date:** 2026-03-22 (Phase 0 completed
+2026-03-22, Phase 1 completed 2026-03-23, Phase 2 completed 2026-03-22,
+Phase 3 pending re-implementation)
 **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
@@ -560,6 +561,48 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 - **Settings change detection**: Previous settings comparison using
   `JSON.stringify` for arrays and direct comparison for scalars, triggering
   re-scan only on actual changes
+
+## Remediation Requirements (Added at Review - Round 1)
+
+Review conducted on 2026-03-23. Phase 3 (Kanban Filters) was implemented against
+the static 4-column board model because Phase 1's staging branch
+(staging/beads-ui-w49.2) was never merged to the feature branch. Phase 3's code
+references `list_blocked`, `list_ready`, `list_in_progress`, `list_closed`
+variables that Phase 1 replaced with a dynamic `column_data` Map. Phase 3 was
+reverted and Phase 1 merged. Phase 3 must be re-implemented on the dynamic
+column model.
+
+### Phase R1: Kanban Filters on Dynamic Columns
+
+**Priority**: P1
+**Scope**: Re-implement Phase 3 filter bar, dropdown population, client-side
+filtering, and persistence using Phase 1's dynamic column model (`col_defs`,
+`column_data` Map, `column_raw` Map).
+
+#### Deliverables
+
+- [ ] R1-1: Filter state schema (`app/state.js`) - BoardFilters typedef with parent, assignee, type fields (P2)
+- [ ] R1-2: Filter dropdown population (`app/views/board.js`) - scan `column_data` Map values for unique parent, assignee, issue_type values (P2)
+- [ ] R1-3: Filter bar component (`app/views/board.js`) - three select dropdowns above dynamic board grid, wrapped in panel__body div (P2)
+- [ ] R1-4: Client-side filtering (`app/views/board.js`) - applyBoardFilters() in refreshFromStores() using AND logic on dynamic column data (P2)
+- [ ] R1-5: Filter bar CSS styling (`app/styles.css`) - flex layout matching existing filter conventions (P2)
+- [ ] R1-6: Filter state localStorage persistence (`app/main.js`) - board_filters in beads-ui.board key (P2)
+- [ ] R1-7: Filter unit tests (`app/views/board.test.js`) - rendering, population, filtering, AND logic, clear, persistence on dynamic columns (P2)
+- [ ] R1-8: Update PRD with Phase 3 re-implementation outcomes (`docs/requirements/beads-ui-enhancements-prd.md`) (P2)
+
+#### Decisions
+
+| Finding | Category | Resolution Path |
+|---------|----------|-----------------|
+| Phase 3 incompatible with dynamic columns | MIGRATION_INCOMPLETE | Full re-implementation using col_defs and column_data Map |
+
+#### Verification
+
+- [ ] `npm test` passes (all tests including new filter tests)
+- [ ] `npm run tsc` passes
+- [ ] `npm run lint` passes
+- [ ] Filter bar renders above dynamic board with three dropdowns
+- [ ] Filters work across all dynamic columns (not just hardcoded 4)
 
 ## Remaining Open Questions
 
