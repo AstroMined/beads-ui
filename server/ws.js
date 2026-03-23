@@ -5,7 +5,12 @@
  */
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
-import { isRequest, makeError, makeOk } from '../app/protocol.js';
+import {
+  isMessageType,
+  isRequest,
+  makeError,
+  makeOk
+} from '../app/protocol.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
 import { resolveWorkspaceDatabase } from './db.js';
 import { fetchListForSubscription } from './list-adapters.js';
@@ -595,6 +600,27 @@ export async function handleMessage(ws, data) {
   }
 
   if (!isRequest(json)) {
+    // Distinguish structurally valid envelopes with unknown types from
+    // genuinely malformed requests so clients get a specific error code.
+    const j = /** @type {Record<string, unknown>} */ (json);
+    if (
+      typeof j.id === 'string' &&
+      typeof j.type === 'string' &&
+      !isMessageType(j.type)
+    ) {
+      log('unknown message type: %s', j.type);
+      const reply = {
+        id: j.id,
+        ok: false,
+        type: j.type,
+        error: {
+          code: 'unknown_type',
+          message: `Unknown message type: ${j.type}`
+        }
+      };
+      ws.send(JSON.stringify(reply));
+      return;
+    }
     log('invalid request');
     const reply = {
       id: 'unknown',
@@ -1356,11 +1382,4 @@ export async function handleMessage(ws, data) {
     return;
   }
 
-  // Unknown type
-  const err = makeError(
-    req,
-    'unknown_type',
-    `Unknown message type: ${req.type}`
-  );
-  ws.send(JSON.stringify(err));
 }
