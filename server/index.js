@@ -3,8 +3,13 @@ import { createApp } from './app.js';
 import { printServerUrl } from './cli/daemon.js';
 import { getConfig } from './config.js';
 import { resolveWorkspaceDatabase } from './db.js';
+import { scanForWorkspaces } from './discovery.js';
 import { debug, enableAllDebug } from './logging.js';
-import { registerWorkspace, watchRegistry } from './registry-watcher.js';
+import {
+  getAvailableWorkspaces,
+  registerWorkspace,
+  watchRegistry
+} from './registry-watcher.js';
 import { loadSettings, watchSettings } from './settings.js';
 import { watchDb } from './watcher.js';
 import { attachWsServer } from './ws.js';
@@ -38,6 +43,25 @@ if (workspace_database.source !== 'home-default' && workspace_database.exists) {
     path: config.root_dir,
     database: workspace_database.path
   });
+}
+
+// Auto-discover workspaces from configured scan roots
+const scan_roots = settings.discovery.scan_roots || [];
+if (scan_roots.length > 0) {
+  const scan_depth = settings.discovery.scan_depth ?? 2;
+  const discovered = scanForWorkspaces(scan_roots, scan_depth);
+  const existing = getAvailableWorkspaces();
+  const existing_paths = new Set(existing.map((w) => w.path));
+  let registered = 0;
+  for (const ws of discovered) {
+    if (!existing_paths.has(ws.workspace_path)) {
+      registerWorkspace({ path: ws.workspace_path, database: '' });
+      registered++;
+    }
+  }
+  log('discovered %d workspaces from %d roots, registered %d new', discovered.length, scan_roots.length, registered);
+} else {
+  log('no discovery scan roots configured, skipping workspace scan');
 }
 
 // Watch the active beads DB and schedule subscription refresh for active lists
