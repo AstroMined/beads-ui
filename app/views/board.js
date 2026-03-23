@@ -304,7 +304,7 @@ export function createBoardView(
             ? html`<label class="board-closed-filter">
                 <span class="visually-hidden">Filter closed issues</span>
                 <select
-                  id="closed-filter"
+                  id=${`closed-filter-${col.id}`}
                   aria-label="Filter closed issues"
                   @change=${onClosedFilterChange}
                 >
@@ -483,7 +483,7 @@ export function createBoardView(
           const t = title_el ? title_el.textContent?.trim() || '' : '';
           card.setAttribute(
             'aria-label',
-            `Issue ${t || '(no title)'} — Column ${col_name}`
+            `Issue ${t || '(no title)'} - Column ${col_name}`
           );
           // Default roving setup
           card.tabIndex = -1;
@@ -878,7 +878,8 @@ export function createBoardView(
       last_filter_options = getFilterOptions();
       applyBoardFilters();
       doRender();
-    } catch {
+    } catch (err) {
+      log('refreshFromStores error: %o', err);
       for (const col of col_defs) {
         column_data.set(col.id, []);
       }
