@@ -71,14 +71,11 @@ describe('views/board closed filter', () => {
       issues
     });
 
-    const view = createBoardView(
-      mount,
-      null,
-      () => {},
-      undefined,
-      undefined,
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
       issueStores
-    );
+    });
     await view.load();
 
     // Default filter: Today → only C-3 visible
@@ -89,7 +86,7 @@ describe('views/board closed filter', () => {
 
     // Change to Last 3 days → C-3 (today) and C-2 (yesterday)
     const select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('#closed-filter')
+      mount.querySelector('#closed-filter-closed')
     );
     select.value = '3';
     select.dispatchEvent(new Event('change', { bubbles: true }));

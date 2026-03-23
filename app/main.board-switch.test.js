@@ -4,12 +4,13 @@ import { bootstrap } from './main.js';
 // Mock the Board view to manipulate DOM content deterministically
 vi.mock('./views/board.js', () => ({
   /**
-   * @param {HTMLElement} mount
+   * @param {{ mount_element: HTMLElement }} options
    */
-  createBoardView: (mount) => ({
+  createBoardView: (options) => ({
     async load() {
       // Simulate a rendered board shell
-      mount.innerHTML = '<div class="panel__body board-root"></div>';
+      options.mount_element.innerHTML =
+        '<div class="panel__body board-root"></div>';
     },
     clear() {
       // No-op in this test; we no longer depend on clearing when switching views

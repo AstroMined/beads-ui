@@ -29,6 +29,19 @@ import { createTypeBadge } from '../utils/type-badge.js';
  * @property {string} subscription - Subscription type for data.
  * @property {Record<string, unknown>} [params] - Optional subscription parameters.
  * @property {string} drop_status - Status to set when a card is dropped.
+ * @property {boolean} [is_closed] - True if this column represents closed issues.
+ */
+
+/**
+ * @typedef {Object} BoardViewOptions
+ * @property {HTMLElement} mount_element
+ * @property {unknown} [data] - Legacy data layer for fallback fetch.
+ * @property {(id: string) => void} gotoIssue - Navigate to issue detail.
+ * @property {{ getState: () => any, setState: (patch: any) => void, subscribe?: (fn: (s:any)=>void)=>()=>void }} [store]
+ * @property {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
+ * @property {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
+ * @property {(type: string, payload: unknown) => Promise<unknown>} [transport] - Transport function for sending updates
+ * @property {ColumnDef[]} [columns] - Column definitions from settings
  */
 
 /**
@@ -39,30 +52,24 @@ import { createTypeBadge } from '../utils/type-badge.js';
  * - Closed columns: closed_at desc.
  * - All others: priority asc, then created_at asc.
  *
- * @param {HTMLElement} mount_element
- * @param {unknown} _data - Unused (legacy param retained for call-compat)
- * @param {(id: string) => void} gotoIssue - Navigate to issue detail.
- * @param {{ getState: () => any, setState: (patch: any) => void, subscribe?: (fn: (s:any)=>void)=>()=>void }} [store]
- * @param {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
- * @param {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
- * @param {(type: string, payload: unknown) => Promise<unknown>} [transport] - Transport function for sending updates
- * @param {ColumnDef[]} [columns] - Column definitions from settings
+ * @param {BoardViewOptions} options
  * @returns {{ load: () => Promise<void>, clear: () => void }}
  */
-export function createBoardView(
-  mount_element,
-  _data,
-  gotoIssue,
-  store,
-  subscriptions = undefined,
-  issueStores = undefined,
-  transport = undefined,
-  columns = undefined
-) {
+export function createBoardView(options) {
+  const {
+    mount_element,
+    data: _data,
+    gotoIssue,
+    store,
+    subscriptions,
+    issueStores,
+    transport,
+    columns
+  } = options;
   const log = debug('views:board');
 
   /** @type {ColumnDef[]} */
-  const col_defs =
+  const col_defs = (
     Array.isArray(columns) && columns.length > 0
       ? columns
       : [
@@ -70,27 +77,35 @@ export function createBoardView(
             id: 'blocked',
             label: 'Blocked',
             subscription: 'blocked-issues',
-            drop_status: 'open'
+            drop_status: 'open',
+            is_closed: false
           },
           {
             id: 'ready',
             label: 'Ready',
             subscription: 'ready-issues',
-            drop_status: 'open'
+            drop_status: 'open',
+            is_closed: false
           },
           {
             id: 'in-progress',
             label: 'In Progress',
             subscription: 'in-progress-issues',
-            drop_status: 'in_progress'
+            drop_status: 'in_progress',
+            is_closed: false
           },
           {
             id: 'closed',
             label: 'Closed',
             subscription: 'closed-issues',
-            drop_status: 'closed'
+            drop_status: 'closed',
+            is_closed: true
           }
-        ];
+        ]
+  ).map((col) => ({
+    ...col,
+    is_closed: col.is_closed ?? col.subscription === 'closed-issues'
+  }));
 
   /** @type {Map<string, IssueLite[]>} */
   const column_data = new Map();
@@ -98,7 +113,7 @@ export function createBoardView(
   const column_raw = new Map();
   for (const col of col_defs) {
     column_data.set(col.id, []);
-    if (col.subscription === 'closed-issues') {
+    if (col.is_closed) {
       column_raw.set(col.id, []);
     }
   }
@@ -127,7 +142,7 @@ export function createBoardView(
   }
 
   /** @type {{ parents: string[], assignees: string[], types: string[] }} */
-  let filter_options = { parents: [], assignees: [], types: [] };
+  let last_filter_options = { parents: [], assignees: [], types: [] };
 
   /**
    * Scan all column_data Map entries for unique filter values.
@@ -180,8 +195,10 @@ export function createBoardView(
 
   /**
    * Render the filter bar with three select dropdowns above the board grid.
+   *
+   * @param {{ parents: string[], assignees: string[], types: string[] }} filter_options
    */
-  function filterBarTemplate() {
+  function filterBarTemplate(filter_options) {
     const board_state = store ? store.getState().board : null;
     const current = board_state?.board_filters || {
       parent: null,
@@ -264,7 +281,7 @@ export function createBoardView(
 
   function template() {
     return html`
-      ${filterBarTemplate()}
+      ${filterBarTemplate(last_filter_options)}
       <div
         class="panel__body board-root"
         style="--board-columns: ${col_defs.length}"
@@ -298,11 +315,11 @@ export function createBoardView(
               ${item_count}
             </span>
           </div>
-          ${col.subscription === 'closed-issues'
+          ${col.is_closed
             ? html`<label class="board-closed-filter">
                 <span class="visually-hidden">Filter closed issues</span>
                 <select
-                  id="closed-filter"
+                  id=${`closed-filter-${col.id}`}
                   aria-label="Filter closed issues"
                   @change=${onClosedFilterChange}
                 >
@@ -481,7 +498,7 @@ export function createBoardView(
           const t = title_el ? title_el.textContent?.trim() || '' : '';
           card.setAttribute(
             'aria-label',
-            `Issue ${t || '(no title)'} — Column ${col_name}`
+            `Issue ${t || '(no title)'} - Column ${col_name}`
           );
           // Default roving setup
           card.tabIndex = -1;
@@ -495,8 +512,12 @@ export function createBoardView(
     }
   }
 
-  // Delegate keyboard handling from mount_element
-  mount_element.addEventListener('keydown', (ev) => {
+  /**
+   * Keyboard handler for board navigation (delegated from mount_element).
+   *
+   * @param {KeyboardEvent} ev
+   */
+  function handleKeydown(ev) {
     const target = ev.target;
     if (!target || !(target instanceof HTMLElement)) {
       return;
@@ -592,14 +613,21 @@ export function createBoardView(
       }
       return;
     }
-  });
+  }
+
+  // Delegate keyboard handling from mount_element
+  mount_element.addEventListener('keydown', handleKeydown);
 
   // Track the currently highlighted column to avoid flicker
   /** @type {HTMLElement|null} */
   let current_drop_target = null;
 
-  // Delegate drag and drop handling for columns
-  mount_element.addEventListener('dragover', (ev) => {
+  /**
+   * Dragover handler: highlight target column during drag.
+   *
+   * @param {DragEvent} ev
+   */
+  function handleDragover(ev) {
     ev.preventDefault();
     if (ev.dataTransfer) {
       ev.dataTransfer.dropEffect = 'move';
@@ -620,9 +648,14 @@ export function createBoardView(
       col.classList.add('board-column--drag-over');
       current_drop_target = col;
     }
-  });
+  }
 
-  mount_element.addEventListener('dragleave', (ev) => {
+  /**
+   * Dragleave handler: clear highlight when leaving mount element.
+   *
+   * @param {DragEvent} ev
+   */
+  function handleDragleave(ev) {
     const related = /** @type {HTMLElement|null} */ (ev.relatedTarget);
     // Only clear if we're leaving the mount element entirely
     if (!related || !mount_element.contains(related)) {
@@ -631,9 +664,14 @@ export function createBoardView(
         current_drop_target = null;
       }
     }
-  });
+  }
 
-  mount_element.addEventListener('drop', (ev) => {
+  /**
+   * Drop handler: update issue status based on target column.
+   *
+   * @param {DragEvent} ev
+   */
+  function handleDrop(ev) {
     ev.preventDefault();
     // Clear the drop target highlight
     if (current_drop_target) {
@@ -665,7 +703,12 @@ export function createBoardView(
 
     log('drop %s on %s → %s', issue_id, col_el_id, new_status);
     void updateIssueStatus(issue_id, new_status);
-  });
+  }
+
+  // Delegate drag and drop handling for columns
+  mount_element.addEventListener('dragover', handleDragover);
+  mount_element.addEventListener('dragleave', handleDragleave);
+  mount_element.addEventListener('drop', handleDrop);
 
   /**
    * @param {HTMLElement} from
@@ -707,7 +750,7 @@ export function createBoardView(
       since_ts = now.getTime() - 7 * 24 * 60 * 60 * 1000;
     }
     for (const col of col_defs) {
-      if (col.subscription !== 'closed-issues') {
+      if (!col.is_closed) {
         continue;
       }
       const raw = column_raw.get(col.id) || [];
@@ -744,7 +787,7 @@ export function createBoardView(
         }
       }
       applyClosedFilter();
-      filter_options = getFilterOptions();
+      last_filter_options = getFilterOptions();
       applyBoardFilters();
       doRender();
     } catch {
@@ -753,24 +796,14 @@ export function createBoardView(
   }
 
   /**
-   * Map subscription type to selectBoardColumn mode.
+   * Derive selectBoardColumn mode from a column's drop_status.
+   * Closed columns use cmpClosedDesc sort; all others use cmpPriorityThenCreated.
    *
-   * @param {string} subscription
-   * @returns {'ready'|'blocked'|'in_progress'|'closed'}
+   * @param {ColumnDef} col
+   * @returns {'ready'|'closed'}
    */
-  function subscriptionToMode(subscription) {
-    switch (subscription) {
-      case 'ready-issues':
-        return 'ready';
-      case 'blocked-issues':
-        return 'blocked';
-      case 'in-progress-issues':
-        return 'in_progress';
-      case 'closed-issues':
-        return 'closed';
-      default:
-        return 'ready';
-    }
+  function columnToMode(col) {
+    return col.drop_status === 'closed' ? 'closed' : 'ready';
   }
 
   /**
@@ -785,21 +818,21 @@ export function createBoardView(
       type: null
     };
     const has_filter =
-      (filters.parent !== null && filters.parent !== undefined) ||
-      (filters.assignee !== null && filters.assignee !== undefined) ||
-      (filters.type !== null && filters.type !== undefined);
+      filters.parent != null ||
+      filters.assignee != null ||
+      filters.type != null;
     if (!has_filter) {
       return;
     }
     for (const [col_id, items] of column_data) {
       const filtered = items.filter((it) => {
-        if (filters.parent !== null && it.parent !== filters.parent) {
+        if (filters.parent != null && it.parent !== filters.parent) {
           return false;
         }
-        if (filters.assignee !== null && it.assignee !== filters.assignee) {
+        if (filters.assignee != null && it.assignee !== filters.assignee) {
           return false;
         }
-        if (filters.type !== null && it.issue_type !== filters.type) {
+        if (filters.type != null && it.issue_type !== filters.type) {
           return false;
         }
         return true;
@@ -835,7 +868,7 @@ export function createBoardView(
           if (col.subscription === 'in-progress-issues') {
             continue; // already handled above
           }
-          const mode = subscriptionToMode(col.subscription);
+          const mode = columnToMode(col);
           const items = selectors.selectBoardColumn(
             'tab:board:' + col.id,
             mode
@@ -847,7 +880,7 @@ export function createBoardView(
               col.id,
               items.filter((i) => !in_prog_ids.has(i.id))
             );
-          } else if (col.subscription === 'closed-issues') {
+          } else if (col.is_closed) {
             column_raw.set(col.id, items);
           } else {
             column_data.set(col.id, items);
@@ -857,10 +890,11 @@ export function createBoardView(
       applyClosedFilter();
       // Compute filter options BEFORE applying board filters
       // so dropdowns show all available values
-      filter_options = getFilterOptions();
+      last_filter_options = getFilterOptions();
       applyBoardFilters();
       doRender();
-    } catch {
+    } catch (err) {
+      log('refreshFromStores error: %o', err);
       for (const col of col_defs) {
         column_data.set(col.id, []);
       }
@@ -869,8 +903,10 @@ export function createBoardView(
   }
 
   // Live updates: recompose on issue store envelopes
+  /** @type {(() => void)|null} */
+  let unsub_selectors = null;
   if (selectors) {
-    selectors.subscribe(() => {
+    unsub_selectors = selectors.subscribe(() => {
       try {
         refreshFromStores();
       } catch {
@@ -912,42 +948,46 @@ export function createBoardView(
           total_items += cnt('tab:board:' + col.id);
         }
         const data = /** @type {any} */ (_data);
+        /** @type {Record<string, string>} */
+        const subscription_methods = {
+          'ready-issues': 'getReady',
+          'blocked-issues': 'getBlocked',
+          'in-progress-issues': 'getInProgress',
+          'closed-issues': 'getClosed'
+        };
         const can_fetch =
           data &&
-          typeof data.getReady === 'function' &&
-          typeof data.getBlocked === 'function' &&
-          typeof data.getInProgress === 'function' &&
-          typeof data.getClosed === 'function';
+          col_defs.every((col) => {
+            const method = subscription_methods[col.subscription];
+            return !method || typeof data[method] === 'function';
+          });
         if (total_items === 0 && can_fetch) {
           log('fallback fetch');
-          /** @type {[IssueLite[], IssueLite[], IssueLite[], IssueLite[]]} */
-          const [ready_raw, blocked_raw, in_prog_raw, closed_raw] =
-            await Promise.all([
-              data.getReady().catch(() => []),
-              data.getBlocked().catch(() => []),
-              data.getInProgress().catch(() => []),
-              data.getClosed().catch(() => [])
-            ]);
-
           /** @type {Map<string, IssueLite[]>} */
-          const fallback_map = new Map([
-            [
-              'ready-issues',
-              Array.isArray(ready_raw) ? ready_raw.map((it) => it) : []
-            ],
-            [
-              'blocked-issues',
-              Array.isArray(blocked_raw) ? blocked_raw.map((it) => it) : []
-            ],
-            [
-              'in-progress-issues',
-              Array.isArray(in_prog_raw) ? in_prog_raw.map((it) => it) : []
-            ],
-            [
-              'closed-issues',
-              Array.isArray(closed_raw) ? closed_raw.map((it) => it) : []
-            ]
-          ]);
+          const fallback_map = new Map();
+          /** @type {Set<string>} */
+          const fetched_subs = new Set();
+          const fetch_promises = [];
+          for (const col of col_defs) {
+            if (fetched_subs.has(col.subscription)) {
+              continue;
+            }
+            const method = subscription_methods[col.subscription];
+            if (method && typeof data[method] === 'function') {
+              fetched_subs.add(col.subscription);
+              fetch_promises.push(
+                data[method]()
+                  .catch(() => [])
+                  .then((/** @type {IssueLite[]} */ raw) => {
+                    fallback_map.set(
+                      col.subscription,
+                      Array.isArray(raw) ? raw.slice() : []
+                    );
+                  })
+              );
+            }
+          }
+          await Promise.all(fetch_promises);
 
           // Collect in-progress IDs for ready filtering
           /** @type {Set<string>} */
@@ -960,7 +1000,7 @@ export function createBoardView(
             if (col.subscription === 'ready-issues') {
               items = items.filter((i) => !in_progress_ids.has(i.id));
             }
-            if (col.subscription === 'closed-issues') {
+            if (col.drop_status === 'closed') {
               column_raw.set(col.id, items);
             } else {
               items.sort(cmpPriorityThenCreated);
@@ -975,10 +1015,23 @@ export function createBoardView(
       }
     },
     clear() {
+      // Unsubscribe from selectors to prevent leaked subscriptions
+      if (unsub_selectors) {
+        unsub_selectors();
+        unsub_selectors = null;
+      }
+      // Remove delegated event listeners to prevent accumulation on hot-reload
+      mount_element.removeEventListener('keydown', handleKeydown);
+      mount_element.removeEventListener('dragover', handleDragover);
+      mount_element.removeEventListener('dragleave', handleDragleave);
+      mount_element.removeEventListener('drop', handleDrop);
+      // Reset drag state
+      dragging_id = null;
+      current_drop_target = null;
       mount_element.replaceChildren();
       for (const col of col_defs) {
         column_data.set(col.id, []);
-        if (col.subscription === 'closed-issues') {
+        if (col.is_closed) {
           column_raw.set(col.id, []);
         }
       }
