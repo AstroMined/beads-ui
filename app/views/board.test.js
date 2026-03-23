@@ -834,4 +834,913 @@ describe('views/board', () => {
     expect(c_card.tabIndex).toBe(0);
     expect(a_card.tabIndex).toBe(-1);
   });
+
+  test('filter bar renders three select dropdowns above the board grid', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: [
+        {
+          id: 'B-1',
+          title: 'b1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          parent: 'epic-1',
+          assignee: 'alice'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: []
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      undefined,
+      undefined,
+      issueStores
+    );
+    await view.load();
+
+    // Filter bar should render above the board grid
+    const filter_bar = mount.querySelector('.board-filter-bar');
+    expect(filter_bar).not.toBeNull();
+
+    // Three select dropdowns
+    const selects = filter_bar?.querySelectorAll('select');
+    expect(selects?.length).toBe(3);
+
+    // Board root should still exist
+    const board_root = mount.querySelector('.board-root');
+    expect(board_root).not.toBeNull();
+
+    // Filter bar should come before board-root in DOM
+    const children = Array.from(mount.children);
+    const filter_idx = children.indexOf(/** @type {Element} */ (filter_bar));
+    const board_idx = children.indexOf(/** @type {Element} */ (board_root));
+    expect(filter_idx).toBeLessThan(board_idx);
+  });
+
+  test('filter dropdowns populate with unique sorted values from issue data', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: [
+        {
+          id: 'B-1',
+          title: 'b1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          parent: 'epic-2',
+          assignee: 'charlie'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'bug',
+          parent: 'epic-1',
+          assignee: 'alice'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'task',
+          parent: 'epic-2',
+          assignee: 'bob'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: [
+        {
+          id: 'P-1',
+          title: 'p1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'feature',
+          parent: 'epic-1',
+          assignee: 'alice'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: [
+        {
+          id: 'C-1',
+          title: 'c1',
+          updated_at: now,
+          closed_at: now,
+          issue_type: 'bug',
+          assignee: 'bob'
+        }
+      ]
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      undefined,
+      undefined,
+      issueStores
+    );
+    await view.load();
+
+    // Parent dropdown options (sorted alphabetically)
+    const parent_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by parent"]')
+    );
+    const parent_opts = Array.from(parent_select.options).map((o) => o.value);
+    // First option is "All Parents" with empty value
+    expect(parent_opts[0]).toBe('');
+    // Unique parents sorted
+    expect(parent_opts.slice(1)).toEqual(['epic-1', 'epic-2']);
+
+    // Assignee dropdown
+    const assignee_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by assignee"]')
+    );
+    const assignee_opts = Array.from(assignee_select.options).map(
+      (o) => o.value
+    );
+    expect(assignee_opts[0]).toBe('');
+    expect(assignee_opts.slice(1)).toEqual(['alice', 'bob', 'charlie']);
+
+    // Type dropdown
+    const type_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by type"]')
+    );
+    const type_opts = Array.from(type_select.options).map((o) => o.value);
+    expect(type_opts[0]).toBe('');
+    expect(type_opts.slice(1)).toEqual(['bug', 'feature', 'task']);
+  });
+
+  test('single filter active reduces visible cards to matching issues', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const store = {
+      state: {
+        selected_id: null,
+        view: 'board',
+        filters: { status: 'all', search: '', type: '' },
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: null, assignee: null, type: null }
+        }
+      },
+      subs: /** @type {((s:any)=>void)[]} */ ([]),
+      getState() {
+        return this.state;
+      },
+      /** @param {any} patch */
+      setState(patch) {
+        this.state = {
+          ...this.state,
+          ...(patch || {}),
+          filters: { ...this.state.filters, ...(patch.filters || {}) },
+          board: {
+            ...this.state.board,
+            ...(patch.board || {}),
+            board_filters: {
+              ...this.state.board.board_filters,
+              ...(patch.board?.board_filters || {})
+            }
+          }
+        };
+        for (const fn of this.subs) {
+          fn(this.state);
+        }
+      },
+      /** @param {(s:any)=>void} fn */
+      subscribe(fn) {
+        this.subs.push(fn);
+        return () => {
+          this.subs = this.subs.filter((f) => f !== fn);
+        };
+      }
+    };
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          parent: 'epic-1',
+          assignee: 'alice'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'bug',
+          parent: 'epic-2',
+          assignee: 'bob'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: [
+        {
+          id: 'P-1',
+          title: 'p1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          parent: 'epic-1',
+          assignee: 'charlie'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: []
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      store,
+      undefined,
+      issueStores
+    );
+    await view.load();
+
+    // Initially all visible
+    let ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready_ids).toHaveLength(2);
+
+    let prog_ids = Array.from(
+      mount.querySelectorAll('#in-progress-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(prog_ids).toHaveLength(1);
+
+    // Apply type filter = 'task' via select change
+    const type_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by type"]')
+    );
+    type_select.value = 'task';
+    type_select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Only task issues should be visible
+    ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready_ids).toEqual(['R-1']);
+
+    prog_ids = Array.from(
+      mount.querySelectorAll('#in-progress-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(prog_ids).toEqual(['P-1']);
+  });
+
+  test('combined filters apply AND logic (intersection)', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const store = {
+      state: {
+        selected_id: null,
+        view: 'board',
+        filters: { status: 'all', search: '', type: '' },
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: null, assignee: null, type: null }
+        }
+      },
+      subs: /** @type {((s:any)=>void)[]} */ ([]),
+      getState() {
+        return this.state;
+      },
+      /** @param {any} patch */
+      setState(patch) {
+        this.state = {
+          ...this.state,
+          ...(patch || {}),
+          filters: { ...this.state.filters, ...(patch.filters || {}) },
+          board: {
+            ...this.state.board,
+            ...(patch.board || {}),
+            board_filters: {
+              ...this.state.board.board_filters,
+              ...(patch.board?.board_filters || {})
+            }
+          }
+        };
+        for (const fn of this.subs) {
+          fn(this.state);
+        }
+      },
+      /** @param {(s:any)=>void} fn */
+      subscribe(fn) {
+        this.subs.push(fn);
+        return () => {
+          this.subs = this.subs.filter((f) => f !== fn);
+        };
+      }
+    };
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          parent: 'epic-1',
+          assignee: 'alice'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'task',
+          parent: 'epic-2',
+          assignee: 'bob'
+        },
+        {
+          id: 'R-3',
+          title: 'r3',
+          created_at: now - 2,
+          updated_at: now - 2,
+          issue_type: 'bug',
+          parent: 'epic-1',
+          assignee: 'alice'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: []
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      store,
+      undefined,
+      issueStores
+    );
+    await view.load();
+
+    // Apply type=task AND parent=epic-1 (should only match R-1)
+    const type_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by type"]')
+    );
+    type_select.value = 'task';
+    type_select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const parent_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by parent"]')
+    );
+    parent_select.value = 'epic-1';
+    parent_select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    // R-1 matches both type=task AND parent=epic-1
+    // R-2 matches type=task but NOT parent=epic-1
+    // R-3 matches parent=epic-1 but NOT type=task
+    expect(ready_ids).toEqual(['R-1']);
+  });
+
+  test('clearing all filters restores full board view', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const store = {
+      state: {
+        selected_id: null,
+        view: 'board',
+        filters: { status: 'all', search: '', type: '' },
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: null, assignee: 'alice', type: null }
+        }
+      },
+      subs: /** @type {((s:any)=>void)[]} */ ([]),
+      getState() {
+        return this.state;
+      },
+      /** @param {any} patch */
+      setState(patch) {
+        this.state = {
+          ...this.state,
+          ...(patch || {}),
+          filters: { ...this.state.filters, ...(patch.filters || {}) },
+          board: {
+            ...this.state.board,
+            ...(patch.board || {}),
+            board_filters: {
+              ...this.state.board.board_filters,
+              ...(patch.board?.board_filters || {})
+            }
+          }
+        };
+        for (const fn of this.subs) {
+          fn(this.state);
+        }
+      },
+      /** @param {(s:any)=>void} fn */
+      subscribe(fn) {
+        this.subs.push(fn);
+        return () => {
+          this.subs = this.subs.filter((f) => f !== fn);
+        };
+      }
+    };
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          assignee: 'alice'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'task',
+          assignee: 'bob'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: []
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      store,
+      undefined,
+      issueStores
+    );
+    await view.load();
+
+    // With assignee=alice filter, only R-1 visible
+    let ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready_ids).toEqual(['R-1']);
+
+    // Clear the assignee filter by selecting "All Assignees"
+    const assignee_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by assignee"]')
+    );
+    assignee_select.value = '';
+    assignee_select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Both issues should be visible again
+    ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready_ids).toHaveLength(2);
+  });
+
+  test('filter options computed BEFORE filtering (dropdowns show all values)', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const store = {
+      state: {
+        selected_id: null,
+        view: 'board',
+        filters: { status: 'all', search: '', type: '' },
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: null, assignee: null, type: 'task' }
+        }
+      },
+      subs: /** @type {((s:any)=>void)[]} */ ([]),
+      getState() {
+        return this.state;
+      },
+      /** @param {any} patch */
+      setState(patch) {
+        this.state = {
+          ...this.state,
+          ...(patch || {}),
+          filters: { ...this.state.filters, ...(patch.filters || {}) },
+          board: {
+            ...this.state.board,
+            ...(patch.board || {}),
+            board_filters: {
+              ...this.state.board.board_filters,
+              ...(patch.board?.board_filters || {})
+            }
+          }
+        };
+        for (const fn of this.subs) {
+          fn(this.state);
+        }
+      },
+      /** @param {(s:any)=>void} fn */
+      subscribe(fn) {
+        this.subs.push(fn);
+        return () => {
+          this.subs = this.subs.filter((f) => f !== fn);
+        };
+      }
+    };
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'bug'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: []
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: []
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      store,
+      undefined,
+      issueStores
+    );
+    await view.load();
+
+    // Even though type=task filter is active, the type dropdown
+    // should still show both 'bug' and 'task' options
+    const type_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by type"]')
+    );
+    const type_opts = Array.from(type_select.options)
+      .map((o) => o.value)
+      .filter(Boolean);
+    expect(type_opts).toEqual(['bug', 'task']);
+
+    // But only task issues should be visible in the board
+    const ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready_ids).toEqual(['R-1']);
+  });
+
+  test('filtering works across dynamic column counts (5 columns)', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const columns = [
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
+    ];
+
+    const store = {
+      state: {
+        selected_id: null,
+        view: 'board',
+        filters: { status: 'all', search: '', type: '' },
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: null, assignee: null, type: null }
+        }
+      },
+      subs: /** @type {((s:any)=>void)[]} */ ([]),
+      getState() {
+        return this.state;
+      },
+      /** @param {any} patch */
+      setState(patch) {
+        this.state = {
+          ...this.state,
+          ...(patch || {}),
+          filters: { ...this.state.filters, ...(patch.filters || {}) },
+          board: {
+            ...this.state.board,
+            ...(patch.board || {}),
+            board_filters: {
+              ...this.state.board.board_filters,
+              ...(patch.board?.board_filters || {})
+            }
+          }
+        };
+        for (const fn of this.subs) {
+          fn(this.state);
+        }
+      },
+      /** @param {(s:any)=>void} fn */
+      subscribe(fn) {
+        this.subs.push(fn);
+        return () => {
+          this.subs = this.subs.filter((f) => f !== fn);
+        };
+      }
+    };
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: [
+        {
+          id: 'B-1',
+          title: 'b1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          assignee: 'alice'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'bug',
+          assignee: 'bob'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: [
+        {
+          id: 'P-1',
+          title: 'p1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task',
+          assignee: 'alice'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-review').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-review',
+      revision: 1,
+      issues: [
+        {
+          id: 'V-1',
+          title: 'v1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'feature',
+          assignee: 'charlie'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: [
+        {
+          id: 'C-1',
+          title: 'c1',
+          updated_at: now,
+          closed_at: now,
+          issue_type: 'task',
+          assignee: 'alice'
+        }
+      ]
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      store,
+      undefined,
+      issueStores,
+      undefined,
+      columns
+    );
+    await view.load();
+
+    // All 5 columns rendered
+    expect(mount.querySelectorAll('.board-column').length).toBe(5);
+
+    // Filter by assignee=alice
+    const assignee_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by assignee"]')
+    );
+    assignee_select.value = 'alice';
+    assignee_select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Blocked: B-1 (alice) visible
+    const blocked = Array.from(
+      mount.querySelectorAll('#blocked-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(blocked).toEqual(['B-1']);
+
+    // Ready: R-1 (bob) filtered out
+    const ready = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready).toEqual([]);
+
+    // In Progress: P-1 (alice) visible
+    const prog = Array.from(
+      mount.querySelectorAll('#in-progress-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(prog).toEqual(['P-1']);
+
+    // In Review: V-1 (charlie) filtered out
+    const review = Array.from(
+      mount.querySelectorAll('#in-review-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(review).toEqual([]);
+
+    // Closed: C-1 (alice) visible
+    const closed = Array.from(
+      mount.querySelectorAll('#closed-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(closed).toEqual(['C-1']);
+  });
 });

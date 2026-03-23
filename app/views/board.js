@@ -16,7 +16,9 @@ import { createTypeBadge } from '../utils/type-badge.js';
  *   issue_type?: string,
  *   created_at?: number,
  *   updated_at?: number,
- *   closed_at?: number
+ *   closed_at?: number,
+ *   parent?: string,
+ *   assignee?: string
  * }} IssueLite
  */
 
@@ -124,8 +126,145 @@ export function createBoardView(
     }
   }
 
+  /** @type {{ parents: string[], assignees: string[], types: string[] }} */
+  let filter_options = { parents: [], assignees: [], types: [] };
+
+  /**
+   * Scan all column_data Map entries for unique filter values.
+   * Must be called BEFORE board filters are applied so dropdowns
+   * show all available values, not just the filtered subset.
+   *
+   * @returns {{ parents: string[], assignees: string[], types: string[] }}
+   */
+  function getFilterOptions() {
+    /** @type {Set<string>} */
+    const parents = new Set();
+    /** @type {Set<string>} */
+    const assignees = new Set();
+    /** @type {Set<string>} */
+    const types = new Set();
+    for (const [, items] of column_data) {
+      for (const it of items) {
+        if (it.parent && typeof it.parent === 'string') {
+          parents.add(it.parent);
+        }
+        if (it.assignee && typeof it.assignee === 'string') {
+          assignees.add(it.assignee);
+        }
+        if (it.issue_type && typeof it.issue_type === 'string') {
+          types.add(it.issue_type);
+        }
+      }
+    }
+    // Also scan column_raw for closed columns (they may have items
+    // not yet in column_data due to the closed date filter)
+    for (const [, items] of column_raw) {
+      for (const it of items) {
+        if (it.parent && typeof it.parent === 'string') {
+          parents.add(it.parent);
+        }
+        if (it.assignee && typeof it.assignee === 'string') {
+          assignees.add(it.assignee);
+        }
+        if (it.issue_type && typeof it.issue_type === 'string') {
+          types.add(it.issue_type);
+        }
+      }
+    }
+    return {
+      parents: Array.from(parents).sort((a, b) => a.localeCompare(b)),
+      assignees: Array.from(assignees).sort((a, b) => a.localeCompare(b)),
+      types: Array.from(types).sort((a, b) => a.localeCompare(b))
+    };
+  }
+
+  /**
+   * Render the filter bar with three select dropdowns above the board grid.
+   */
+  function filterBarTemplate() {
+    const board_state = store ? store.getState().board : null;
+    const current = board_state?.board_filters || {
+      parent: null,
+      assignee: null,
+      type: null
+    };
+    return html`
+      <div class="board-filter-bar">
+        <span class="board-filter-bar__label">Filter:</span>
+        <select
+          aria-label="Filter by parent"
+          @change=${(/** @type {Event} */ ev) => {
+            const v =
+              /** @type {HTMLSelectElement} */ (ev.target).value || null;
+            onBoardFilterChange('parent', v);
+          }}
+        >
+          <option value="">All Parents</option>
+          ${filter_options.parents.map(
+            (p) =>
+              html`<option value=${p} ?selected=${current.parent === p}>
+                ${p}
+              </option>`
+          )}
+        </select>
+        <select
+          aria-label="Filter by assignee"
+          @change=${(/** @type {Event} */ ev) => {
+            const v =
+              /** @type {HTMLSelectElement} */ (ev.target).value || null;
+            onBoardFilterChange('assignee', v);
+          }}
+        >
+          <option value="">All Assignees</option>
+          ${filter_options.assignees.map(
+            (a) =>
+              html`<option value=${a} ?selected=${current.assignee === a}>
+                ${a}
+              </option>`
+          )}
+        </select>
+        <select
+          aria-label="Filter by type"
+          @change=${(/** @type {Event} */ ev) => {
+            const v =
+              /** @type {HTMLSelectElement} */ (ev.target).value || null;
+            onBoardFilterChange('type', v);
+          }}
+        >
+          <option value="">All Types</option>
+          ${filter_options.types.map(
+            (t) =>
+              html`<option value=${t} ?selected=${current.type === t}>
+                ${t}
+              </option>`
+          )}
+        </select>
+      </div>
+    `;
+  }
+
+  /**
+   * Handle board filter change from any of the three filter dropdowns.
+   *
+   * @param {'parent'|'assignee'|'type'} field
+   * @param {string|null} value
+   */
+  function onBoardFilterChange(field, value) {
+    if (store) {
+      try {
+        store.setState({
+          board: { board_filters: { [field]: value } }
+        });
+      } catch {
+        // ignore store errors
+      }
+    }
+    refreshFromStores();
+  }
+
   function template() {
     return html`
+      ${filterBarTemplate()}
       <div
         class="panel__body board-root"
         style="--board-columns: ${col_defs.length}"
@@ -605,6 +744,8 @@ export function createBoardView(
         }
       }
       applyClosedFilter();
+      filter_options = getFilterOptions();
+      applyBoardFilters();
       doRender();
     } catch {
       // ignore
@@ -629,6 +770,41 @@ export function createBoardView(
         return 'closed';
       default:
         return 'ready';
+    }
+  }
+
+  /**
+   * Apply board filters (parent, assignee, type) with AND logic
+   * to all entries in column_data Map.
+   */
+  function applyBoardFilters() {
+    const board_state = store ? store.getState().board : null;
+    const filters = board_state?.board_filters || {
+      parent: null,
+      assignee: null,
+      type: null
+    };
+    const has_filter =
+      (filters.parent !== null && filters.parent !== undefined) ||
+      (filters.assignee !== null && filters.assignee !== undefined) ||
+      (filters.type !== null && filters.type !== undefined);
+    if (!has_filter) {
+      return;
+    }
+    for (const [col_id, items] of column_data) {
+      const filtered = items.filter((it) => {
+        if (filters.parent !== null && it.parent !== filters.parent) {
+          return false;
+        }
+        if (filters.assignee !== null && it.assignee !== filters.assignee) {
+          return false;
+        }
+        if (filters.type !== null && it.issue_type !== filters.type) {
+          return false;
+        }
+        return true;
+      });
+      column_data.set(col_id, filtered);
     }
   }
 
@@ -679,6 +855,10 @@ export function createBoardView(
         }
       }
       applyClosedFilter();
+      // Compute filter options BEFORE applying board filters
+      // so dropdowns show all available values
+      filter_options = getFilterOptions();
+      applyBoardFilters();
       doRender();
     } catch {
       for (const col of col_defs) {

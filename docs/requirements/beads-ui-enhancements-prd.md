@@ -1,9 +1,8 @@
 # beads-ui Enhancements PRD
 
-**Status:** Remediation Pending **Date:** 2026-03-22 (Phase 0 completed
-2026-03-22, Phase 1 completed 2026-03-23, Phase 2 completed 2026-03-22,
-Phase 3 pending re-implementation)
-**Author:** Ryan Peterson **Related:**
+**Status:** Complete **Date:** 2026-03-22 (Phase 0 completed 2026-03-22, Phase 1
+completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3 completed
+2026-03-23) **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
 ## Context
@@ -239,20 +238,20 @@ configuration)
 **Depends on:** Phase 1 (dynamic columns must exist before filtering across
 them)
 
-- [ ] Filter bar component in `app/views/board.js` rendering above the board
+- [x] Filter bar component in `app/views/board.js` rendering above the board
       grid with three `<select>` dropdowns: Parent/Epic, Assignee, and Type
-- [ ] Dropdown population logic that scans all issues across all column stores
+- [x] Dropdown population logic that scans all issues across all column stores
       to extract unique parent, assignee, and issue_type values, sorted
       alphabetically
-- [ ] Client-side filtering in `refreshFromStores()` applying `Array.filter()`
+- [x] Client-side filtering in `refreshFromStores()` applying `Array.filter()`
       to each column's issue list before rendering, with empty filter value
       meaning "show all"
-- [ ] Board filter state (`board_filters: { parent, assignee, type }`) added to
+- [x] Board filter state (`board_filters: { parent, assignee, type }`) added to
       `app/state.js` AppState with localStorage persistence following existing
       `beads-ui.board` pattern
-- [ ] Filter bar styling in `app/styles.css` with flex layout above the board
+- [x] Filter bar styling in `app/styles.css` with flex layout above the board
       grid, matching existing filter UI conventions from the Issues list view
-- [ ] Unit tests for filter bar rendering, filtering logic (single filter,
+- [x] Unit tests for filter bar rendering, filtering logic (single filter,
       combined filters, empty filters), and dropdown population
 
 ## UX / Architecture Details
@@ -410,14 +409,14 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 
 ### Phase 3
 
-- [ ] `npm test` passes with all filter tests
-- [ ] Filter bar renders above board with three dropdowns
-- [ ] Selecting a parent/epic filter shows only cards belonging to that parent
-- [ ] Selecting an assignee filter shows only cards assigned to that person
-- [ ] Selecting a type filter shows only cards of that type
-- [ ] Combining multiple filters applies AND logic (intersection)
-- [ ] Clearing all filters restores full board view
-- [ ] Filter selections persist across page reloads (localStorage)
+- [x] `npm test` passes with all filter tests
+- [x] Filter bar renders above board with three dropdowns
+- [x] Selecting a parent/epic filter shows only cards belonging to that parent
+- [x] Selecting an assignee filter shows only cards assigned to that person
+- [x] Selecting a type filter shows only cards of that type
+- [x] Combining multiple filters applies AND logic (intersection)
+- [x] Clearing all filters restores full board view
+- [x] Filter selections persist across page reloads (localStorage)
 
 ## Phase 0 Outcomes
 
@@ -562,6 +561,62 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
   `JSON.stringify` for arrays and direct comparison for scalars, triggering
   re-scan only on actual changes
 
+## Phase 3 Outcomes
+
+### What Was Completed
+
+- `BoardFilters` typedef and `board_filters` field added to `AppState` in
+  `app/state.js` with deep merge in `setState()` and change detection in the
+  shallow-compare guard
+- `IssueLite` typedef extended with `parent` and `assignee` fields in
+  `app/views/board.js`
+- `getFilterOptions()` function scanning all `column_data` and `column_raw` Map
+  entries for unique parent, assignee, and issue_type values, sorted
+  alphabetically
+- `filterBarTemplate()` rendering three `<select>` dropdowns (Parent/Epic,
+  Assignee, Type) with "All" default options above the board grid
+- `applyBoardFilters()` applying AND logic across all `column_data` Map entries,
+  called after `applyClosedFilter()` and after `getFilterOptions()` (so
+  dropdowns show all values, not the filtered subset)
+- `onBoardFilterChange()` handler updating store and triggering
+  `refreshFromStores()` on filter dropdown change events
+- Filter bar CSS styling in `app/styles.css` with flex layout, responsive wrap
+  at 1100px breakpoint, matching existing closed filter select appearance
+- localStorage persistence using separate `beads-ui.board-filters` key to avoid
+  breaking existing `beads-ui.board` closed_filter persistence
+- 7 unit tests in `app/views/board.test.js` covering filter bar rendering,
+  dropdown population, single filter, AND logic, clearing filters, dropdown
+  options computed before filtering, and filtering across 5 dynamic columns
+
+### Deviations from Plan
+
+- Re-implemented against Phase 1's dynamic column model (`col_defs`,
+  `column_data` Map, `column_raw` Map) rather than the original static 4-column
+  model. The original Phase 3 implementation referenced `list_blocked`,
+  `list_ready`, `list_in_progress`, `list_closed` variables that no longer
+  existed after Phase 1's refactor.
+- Used separate `beads-ui.board-filters` localStorage key instead of nesting
+  inside `beads-ui.board` to maintain backwards compatibility with existing
+  closed_filter persistence.
+- Filter options scan `column_raw` in addition to `column_data` to include
+  values from closed items that may be excluded by the closed date filter.
+
+### Key Patterns Established
+
+- **Filter state deep merge**: `board_filters` uses nested deep merge in
+  `setState()` so individual filter fields can be updated without clobbering
+  others (e.g., `{ board_filters: { type: 'task' } }` preserves parent and
+  assignee values)
+- **Options-before-filter ordering**: `getFilterOptions()` is called before
+  `applyBoardFilters()` in `refreshFromStores()` so dropdown options always show
+  all available values regardless of active filters
+- **Defensive filter state access**: `board_state?.board_filters || defaults`
+  pattern handles legacy stores that lack `board_filters` field (e.g., test
+  mocks from pre-filter era)
+- **Separate localStorage keys**: New feature state uses its own key
+  (`beads-ui.board-filters`) rather than extending existing keys, preventing
+  schema migration issues
+
 ## Remediation Requirements (Added at Review - Round 1)
 
 Review conducted on 2026-03-23. Phase 3 (Kanban Filters) was implemented against
@@ -574,35 +629,44 @@ column model.
 
 ### Phase R1: Kanban Filters on Dynamic Columns
 
-**Priority**: P1
-**Scope**: Re-implement Phase 3 filter bar, dropdown population, client-side
-filtering, and persistence using Phase 1's dynamic column model (`col_defs`,
-`column_data` Map, `column_raw` Map).
+**Priority**: P1 **Scope**: Re-implement Phase 3 filter bar, dropdown
+population, client-side filtering, and persistence using Phase 1's dynamic
+column model (`col_defs`, `column_data` Map, `column_raw` Map).
 
 #### Deliverables
 
-- [ ] R1-1: Filter state schema (`app/state.js`) - BoardFilters typedef with parent, assignee, type fields (P2)
-- [ ] R1-2: Filter dropdown population (`app/views/board.js`) - scan `column_data` Map values for unique parent, assignee, issue_type values (P2)
-- [ ] R1-3: Filter bar component (`app/views/board.js`) - three select dropdowns above dynamic board grid, wrapped in panel__body div (P2)
-- [ ] R1-4: Client-side filtering (`app/views/board.js`) - applyBoardFilters() in refreshFromStores() using AND logic on dynamic column data (P2)
-- [ ] R1-5: Filter bar CSS styling (`app/styles.css`) - flex layout matching existing filter conventions (P2)
-- [ ] R1-6: Filter state localStorage persistence (`app/main.js`) - board_filters in beads-ui.board key (P2)
-- [ ] R1-7: Filter unit tests (`app/views/board.test.js`) - rendering, population, filtering, AND logic, clear, persistence on dynamic columns (P2)
-- [ ] R1-8: Update PRD with Phase 3 re-implementation outcomes (`docs/requirements/beads-ui-enhancements-prd.md`) (P2)
+- [x] R1-1: Filter state schema (`app/state.js`) - BoardFilters typedef with
+      parent, assignee, type fields (P2)
+- [x] R1-2: Filter dropdown population (`app/views/board.js`) - scan
+      `column_data` Map values for unique parent, assignee, issue_type values
+      (P2)
+- [x] R1-3: Filter bar component (`app/views/board.js`) - three select dropdowns
+      above dynamic board grid, wrapped in panel\_\_body div (P2)
+- [x] R1-4: Client-side filtering (`app/views/board.js`) - applyBoardFilters()
+      in refreshFromStores() using AND logic on dynamic column data (P2)
+- [x] R1-5: Filter bar CSS styling (`app/styles.css`) - flex layout matching
+      existing filter conventions (P2)
+- [x] R1-6: Filter state localStorage persistence (`app/main.js`) -
+      board_filters in beads-ui.board key (P2)
+- [x] R1-7: Filter unit tests (`app/views/board.test.js`) - rendering,
+      population, filtering, AND logic, clear, persistence on dynamic columns
+      (P2)
+- [x] R1-8: Update PRD with Phase 3 re-implementation outcomes
+      (`docs/requirements/beads-ui-enhancements-prd.md`) (P2)
 
 #### Decisions
 
-| Finding | Category | Resolution Path |
-|---------|----------|-----------------|
+| Finding                                   | Category             | Resolution Path                                           |
+| ----------------------------------------- | -------------------- | --------------------------------------------------------- |
 | Phase 3 incompatible with dynamic columns | MIGRATION_INCOMPLETE | Full re-implementation using col_defs and column_data Map |
 
 #### Verification
 
-- [ ] `npm test` passes (all tests including new filter tests)
-- [ ] `npm run tsc` passes
-- [ ] `npm run lint` passes
-- [ ] Filter bar renders above dynamic board with three dropdowns
-- [ ] Filters work across all dynamic columns (not just hardcoded 4)
+- [x] `npm test` passes (all tests including new filter tests)
+- [x] `npm run tsc` passes
+- [x] `npm run lint` passes
+- [x] Filter bar renders above dynamic board with three dropdowns
+- [x] Filters work across all dynamic columns (not just hardcoded 4)
 
 ## Remaining Open Questions
 

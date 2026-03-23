@@ -414,8 +414,11 @@ export function bootstrap(root_element) {
       log('view parse error: %o', err);
     }
     // Load board preferences
-    /** @type {{ closed_filter: 'today'|'3'|'7' }} */
-    let persistedBoard = { closed_filter: 'today' };
+    /** @type {{ closed_filter: 'today'|'3'|'7', board_filters: { parent: string|null, assignee: string|null, type: string|null } }} */
+    let persistedBoard = {
+      closed_filter: 'today',
+      board_filters: { parent: null, assignee: null, type: null }
+    };
     try {
       const raw_board = window.localStorage.getItem('beads-ui.board');
       if (raw_board) {
@@ -429,6 +432,26 @@ export function bootstrap(root_element) {
       }
     } catch (err) {
       log('board prefs parse error: %o', err);
+    }
+    // Load persisted board filters from separate localStorage key
+    try {
+      const raw_filters = window.localStorage.getItem('beads-ui.board-filters');
+      if (raw_filters) {
+        const obj = JSON.parse(raw_filters);
+        if (obj && typeof obj === 'object') {
+          persistedBoard.board_filters = {
+            parent:
+              typeof obj.parent === 'string' && obj.parent ? obj.parent : null,
+            assignee:
+              typeof obj.assignee === 'string' && obj.assignee
+                ? obj.assignee
+                : null,
+            type: typeof obj.type === 'string' && obj.type ? obj.type : null
+          };
+        }
+      }
+    } catch (err) {
+      log('board filters parse error: %o', err);
     }
 
     const store = createStore({
@@ -601,6 +624,13 @@ export function bootstrap(root_element) {
         'beads-ui.board',
         JSON.stringify({ closed_filter: s.board.closed_filter })
       );
+      // Persist board filters separately
+      if (s.board.board_filters) {
+        window.localStorage.setItem(
+          'beads-ui.board-filters',
+          JSON.stringify(s.board.board_filters)
+        );
+      }
     });
     void issues_view.load();
 
