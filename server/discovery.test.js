@@ -24,31 +24,31 @@ afterEach(() => {
 });
 
 describe('scanForWorkspaces', () => {
-  test('discovers project with .beads/*.db file', () => {
+  test('discovers project with .beads/*.db file', async () => {
     const root = mkdtemp();
     const project = path.join(root, 'my-project');
     fs.mkdirSync(path.join(project, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(project, '.beads', 'project.db'), '');
 
-    const results = scanForWorkspaces([root], 2);
+    const results = await scanForWorkspaces([root], 2);
     expect(results).toHaveLength(1);
     expect(results[0].workspace_path).toBe(project);
     expect(results[0].name).toBe('my-project');
   });
 
-  test('discovers project with .beads/metadata.json', () => {
+  test('discovers project with .beads/metadata.json', async () => {
     const root = mkdtemp();
     const project = path.join(root, 'meta-project');
     fs.mkdirSync(path.join(project, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(project, '.beads', 'metadata.json'), '{}');
 
-    const results = scanForWorkspaces([root], 2);
+    const results = await scanForWorkspaces([root], 2);
     expect(results).toHaveLength(1);
     expect(results[0].workspace_path).toBe(project);
     expect(results[0].name).toBe('meta-project');
   });
 
-  test('depth=1 finds immediate children only', () => {
+  test('depth=1 finds immediate children only', async () => {
     const root = mkdtemp();
     const child = path.join(root, 'child');
     const grandchild = path.join(child, 'grandchild');
@@ -57,74 +57,74 @@ describe('scanForWorkspaces', () => {
     fs.mkdirSync(path.join(grandchild, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(grandchild, '.beads', 'b.db'), '');
 
-    const results = scanForWorkspaces([root], 1);
+    const results = await scanForWorkspaces([root], 1);
     expect(results).toHaveLength(1);
     expect(results[0].workspace_path).toBe(child);
   });
 
-  test('depth=2 finds grandchildren', () => {
+  test('depth=2 finds grandchildren', async () => {
     const root = mkdtemp();
     const child = path.join(root, 'child');
     const grandchild = path.join(child, 'grandchild');
     fs.mkdirSync(path.join(grandchild, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(grandchild, '.beads', 'c.db'), '');
 
-    const results = scanForWorkspaces([root], 2);
+    const results = await scanForWorkspaces([root], 2);
     expect(results).toHaveLength(1);
     expect(results[0].workspace_path).toBe(grandchild);
   });
 
-  test('skips node_modules directories', () => {
+  test('skips node_modules directories', async () => {
     const root = mkdtemp();
     const nm = path.join(root, 'node_modules', 'some-pkg');
     fs.mkdirSync(path.join(nm, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(nm, '.beads', 'x.db'), '');
 
-    const results = scanForWorkspaces([root], 3);
+    const results = await scanForWorkspaces([root], 3);
     expect(results).toHaveLength(0);
   });
 
-  test('skips .git directories', () => {
+  test('skips .git directories', async () => {
     const root = mkdtemp();
     const git = path.join(root, '.git', 'modules', 'sub');
     fs.mkdirSync(path.join(git, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(git, '.beads', 'x.db'), '');
 
-    const results = scanForWorkspaces([root], 4);
+    const results = await scanForWorkspaces([root], 4);
     expect(results).toHaveLength(0);
   });
 
-  test('skips hidden directories', () => {
+  test('skips hidden directories', async () => {
     const root = mkdtemp();
     const hidden = path.join(root, '.hidden-dir');
     fs.mkdirSync(path.join(hidden, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(hidden, '.beads', 'x.db'), '');
 
-    const results = scanForWorkspaces([root], 2);
+    const results = await scanForWorkspaces([root], 2);
     expect(results).toHaveLength(0);
   });
 
-  test('empty roots returns empty array', () => {
-    const results = scanForWorkspaces([], 2);
+  test('empty roots returns empty array', async () => {
+    const results = await scanForWorkspaces([], 2);
     expect(results).toHaveLength(0);
   });
 
-  test('nonexistent root returns empty array', () => {
-    const results = scanForWorkspaces(['/nonexistent/path/abc123'], 2);
+  test('nonexistent root returns empty array', async () => {
+    const results = await scanForWorkspaces(['/nonexistent/path/abc123'], 2);
     expect(results).toHaveLength(0);
   });
 
-  test('ignores .beads/ with no db or metadata files', () => {
+  test('ignores .beads/ with no db or metadata files', async () => {
     const root = mkdtemp();
     const project = path.join(root, 'empty-beads');
     fs.mkdirSync(path.join(project, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(project, '.beads', 'config.yaml'), '');
 
-    const results = scanForWorkspaces([root], 2);
+    const results = await scanForWorkspaces([root], 2);
     expect(results).toHaveLength(0);
   });
 
-  test('discovers multiple projects across roots', () => {
+  test('discovers multiple projects across roots', async () => {
     const root1 = mkdtemp();
     const root2 = mkdtemp();
     const p1 = path.join(root1, 'proj-a');
@@ -134,7 +134,7 @@ describe('scanForWorkspaces', () => {
     fs.mkdirSync(path.join(p2, '.beads'), { recursive: true });
     fs.writeFileSync(path.join(p2, '.beads', 'b.db'), '');
 
-    const results = scanForWorkspaces([root1, root2], 2);
+    const results = await scanForWorkspaces([root1, root2], 2);
     expect(results).toHaveLength(2);
     const paths = results.map((r) => r.workspace_path);
     expect(paths).toContain(p1);
