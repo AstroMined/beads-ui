@@ -51,10 +51,10 @@ if (workspace_database.source !== 'home-default' && workspace_database.exists) {
  *
  * @param {string[]} roots - Directories to scan.
  * @param {number} depth - Maximum recursion depth.
- * @returns {number} Number of newly registered workspaces.
+ * @returns {Promise<number>} Number of newly registered workspaces.
  */
-function discoverAndRegister(roots, depth) {
-  const discovered = scanForWorkspaces(roots, depth);
+async function discoverAndRegister(roots, depth) {
+  const discovered = await scanForWorkspaces(roots, depth);
   const existing = getAvailableWorkspaces();
   const existing_paths = new Set(existing.map((w) => path.resolve(w.path)));
   let registered = 0;
@@ -79,7 +79,7 @@ function discoverAndRegister(roots, depth) {
 const scan_roots = settings.discovery.scan_roots || [];
 if (scan_roots.length > 0) {
   const scan_depth = settings.discovery.scan_depth ?? 2;
-  discoverAndRegister(scan_roots, scan_depth);
+  await discoverAndRegister(scan_roots, scan_depth);
 } else {
   log('no discovery scan roots configured, skipping workspace scan');
 }
@@ -125,7 +125,7 @@ let prev_scan_roots = JSON.stringify(settings.discovery.scan_roots || []);
 let prev_scan_depth = settings.discovery.scan_depth ?? 2;
 
 // Watch settings file for changes and push to connected clients
-watchSettings((new_settings) => {
+watchSettings(async (new_settings) => {
   log('settings changed, broadcasting to clients');
   broadcastSettingsChanged(new_settings);
 
@@ -138,7 +138,7 @@ watchSettings((new_settings) => {
     prev_scan_depth = new_depth;
     if (new_roots.length > 0) {
       log('re-scanning workspaces: roots=%o depth=%d', new_roots, new_depth);
-      discoverAndRegister(new_roots, new_depth);
+      await discoverAndRegister(new_roots, new_depth);
     }
   }
 });
