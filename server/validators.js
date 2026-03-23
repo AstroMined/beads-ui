@@ -16,7 +16,8 @@ const SUBSCRIPTION_TYPES = new Set([
   'ready-issues',
   'in-progress-issues',
   'closed-issues',
-  'issue-detail'
+  'issue-detail',
+  'status-issues'
 ]);
 
 /**
@@ -82,6 +83,21 @@ export function validateSubscribeListPayload(payload) {
       };
     }
     params = { id };
+  } else if (type === 'status-issues') {
+    const params_obj =
+      typeof any.params === 'object' && any.params ? any.params : {};
+    const status =
+      typeof /** @type {any} */ (params_obj).status === 'string'
+        ? /** @type {any} */ (params_obj).status.trim()
+        : '';
+    if (status.length === 0) {
+      return {
+        ok: false,
+        code: 'bad_request',
+        message: 'status-issues requires non-empty params.status'
+      };
+    }
+    params = { status };
   } else if (type === 'closed-issues') {
     if (params && 'since' in params) {
       const since = params.since;
