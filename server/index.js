@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import path from 'node:path';
 import { createApp } from './app.js';
 import { printServerUrl } from './cli/daemon.js';
 import { getConfig } from './config.js';
@@ -50,16 +51,18 @@ if (workspace_database.source !== 'home-default' && workspace_database.exists) {
  *
  * @param {string[]} roots - Directories to scan.
  * @param {number} depth - Maximum recursion depth.
- * @returns {number} Number of newly registered workspaces.
+ * @returns {Promise<number>} Number of newly registered workspaces.
  */
-function discoverAndRegister(roots, depth) {
-  const discovered = scanForWorkspaces(roots, depth);
+async function discoverAndRegister(roots, depth) {
+  const discovered = await scanForWorkspaces(roots, depth);
   const existing = getAvailableWorkspaces();
-  const existing_paths = new Set(existing.map((w) => w.path));
+  const existing_paths = new Set(existing.map((w) => path.resolve(w.path)));
   let registered = 0;
   for (const ws of discovered) {
-    if (!existing_paths.has(ws.workspace_path)) {
-      registerWorkspace({ path: ws.workspace_path, database: '' });
+    const resolved = path.resolve(ws.workspace_path);
+    if (!existing_paths.has(resolved)) {
+      const db = resolveWorkspaceDatabase({ cwd: resolved });
+      registerWorkspace({ path: resolved, database: db.exists ? db.path : '' });
       registered++;
     }
   }
@@ -76,19 +79,28 @@ function discoverAndRegister(roots, depth) {
 const scan_roots = settings.discovery.scan_roots || [];
 if (scan_roots.length > 0) {
   const scan_depth = settings.discovery.scan_depth ?? 2;
-  discoverAndRegister(scan_roots, scan_depth);
+  await discoverAndRegister(scan_roots, scan_depth);
 } else {
   log('no discovery scan roots configured, skipping workspace scan');
 }
 
-// Watch the active beads DB and schedule subscription refresh for active lists
-const db_watcher = watchDb(config.root_dir, () => {
-  // Schedule subscription list refresh run for active subscriptions
-  log('db change detected → schedule refresh');
-  scheduleListRefresh();
-  // v2: all updates flow via subscription push envelopes only
-});
+// Lazy watcher wrapper: allows attachWsServer to hold a reference to the
+// db watcher before watchDb is called, avoiding a TDZ on scheduleListRefresh.
+/** @type {{ target: ReturnType<typeof watchDb> | null, rebind: (opts?: { root_dir?: string }) => void, path: string }} */
+const watcher_ref = {
+  target: null,
+  rebind(opts) {
+    if (this.target) {
+      this.target.rebind(opts);
+    }
+  },
+  get path() {
+    return this.target ? this.target.path : '';
+  }
+};
 
+// Attach WebSocket server first so scheduleListRefresh is available before
+// the watchDb callback that references it.
 const { scheduleListRefresh, broadcastSettingsChanged } = attachWsServer(
   server,
   {
@@ -97,16 +109,23 @@ const { scheduleListRefresh, broadcastSettingsChanged } = attachWsServer(
     // Coalesce DB change bursts into one refresh run
     refresh_debounce_ms: 75,
     root_dir: config.root_dir,
-    watcher: db_watcher
+    watcher: watcher_ref
   }
 );
+
+// Watch the active beads DB and schedule subscription refresh for active lists
+const db_watcher = watchDb(config.root_dir, () => {
+  log('db change detected, schedule refresh');
+  scheduleListRefresh();
+});
+watcher_ref.target = db_watcher;
 
 // Track previous discovery settings for change comparison
 let prev_scan_roots = JSON.stringify(settings.discovery.scan_roots || []);
 let prev_scan_depth = settings.discovery.scan_depth ?? 2;
 
 // Watch settings file for changes and push to connected clients
-watchSettings((new_settings) => {
+const settings_watcher = watchSettings(async (new_settings) => {
   log('settings changed, broadcasting to clients');
   broadcastSettingsChanged(new_settings);
 
@@ -119,22 +138,31 @@ watchSettings((new_settings) => {
     prev_scan_depth = new_depth;
     if (new_roots.length > 0) {
       log('re-scanning workspaces: roots=%o depth=%d', new_roots, new_depth);
-      discoverAndRegister(new_roots, new_depth);
+      await discoverAndRegister(new_roots, new_depth);
     }
   }
 });
 
 // Watch the global registry for workspace changes (e.g., when user starts
 // bd daemon in a different project). This enables automatic workspace switching.
-watchRegistry(
+const registry_watcher = watchRegistry(
   (entries) => {
-    log('registry changed: %d entries', entries.length);
-    // Find if there's a newer workspace that matches our initial root
-    // For now, we just log the change - users can switch via set-workspace
-    // Future: could auto-switch if a workspace was started in a parent/child dir
+    log('registry changed: %d entries, refreshing client lists', entries.length);
+    scheduleListRefresh();
   },
   { debounce_ms: 500 }
 );
+
+// Graceful shutdown: close all watchers and the HTTP server
+function shutdown() {
+  log('shutting down');
+  db_watcher.close();
+  settings_watcher.close();
+  registry_watcher.close();
+  server.close();
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 server.listen(config.port, config.host, () => {
   printServerUrl();

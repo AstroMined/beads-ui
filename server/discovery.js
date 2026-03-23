@@ -27,12 +27,14 @@ function shouldSkip(name) {
  * files (*.db) or a metadata.json file.
  *
  * @param {string} dir - Absolute path to check.
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function hasBeadsProject(dir) {
+async function hasBeadsProject(dir) {
   const beads_dir = path.join(dir, '.beads');
   try {
-    const entries = fs.readdirSync(beads_dir, { withFileTypes: true });
+    const entries = await fs.promises.readdir(beads_dir, {
+      withFileTypes: true
+    });
     return entries.some(
       (e) =>
         e.isFile() && (e.name.endsWith('.db') || e.name === 'metadata.json')
@@ -49,12 +51,12 @@ function hasBeadsProject(dir) {
  * @param {number} depth - Remaining recursion depth.
  * @param {Array<{ workspace_path: string, name: string }>} results - Accumulator.
  */
-function walkDir(dir, depth, results) {
+async function walkDir(dir, depth, results) {
   if (depth < 0) {
     return;
   }
 
-  if (hasBeadsProject(dir)) {
+  if (await hasBeadsProject(dir)) {
     results.push({
       workspace_path: dir,
       name: path.basename(dir)
@@ -68,14 +70,18 @@ function walkDir(dir, depth, results) {
   /** @type {fs.Dirent[]} */
   let entries;
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
   } catch {
     return;
   }
 
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) {
+      log('skipping symlink: %s', path.join(dir, entry.name));
+      continue;
+    }
     if (entry.isDirectory() && !shouldSkip(entry.name)) {
-      walkDir(path.join(dir, entry.name), depth - 1, results);
+      await walkDir(path.join(dir, entry.name), depth - 1, results);
     }
   }
 }
@@ -85,9 +91,9 @@ function walkDir(dir, depth, results) {
  *
  * @param {string[]} roots - Directories to scan.
  * @param {number} depth - Maximum recursion depth (e.g., 2 means children and grandchildren).
- * @returns {Array<{ workspace_path: string, name: string }>}
+ * @returns {Promise<Array<{ workspace_path: string, name: string }>>}
  */
-export function scanForWorkspaces(roots, depth) {
+export async function scanForWorkspaces(roots, depth) {
   /** @type {Array<{ workspace_path: string, name: string }>} */
   const results = [];
 
@@ -96,13 +102,13 @@ export function scanForWorkspaces(roots, depth) {
     log('scanning %s (depth=%d)', resolved, depth);
 
     try {
-      fs.readdirSync(resolved);
+      await fs.promises.readdir(resolved);
     } catch {
       log('root does not exist or is not readable: %s', resolved);
       continue;
     }
 
-    walkDir(resolved, depth, results);
+    await walkDir(resolved, depth, results);
   }
 
   log('found %d workspace(s)', results.length);

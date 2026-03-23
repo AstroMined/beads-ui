@@ -67,7 +67,9 @@ describe('list adapters for subscription types', () => {
       '--json',
       '--tree=false',
       '--status',
-      'in_review'
+      'in_review',
+      '--limit',
+      '1000'
     ]);
   });
 

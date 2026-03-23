@@ -2,7 +2,8 @@
 
 **Status:** Complete **Date:** 2026-03-23 (Phase 0 completed 2026-03-22, Phase 1
 completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3 completed
-2026-03-23, R5 completed 2026-03-23) **Author:** Ryan Peterson **Related:**
+2026-03-23, Phase R4 completed 2026-03-23, R5 completed 2026-03-23) **Author:**
+Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
 > **Review Round 1**: 40 findings (1 critical, 4 major, 3 high, 8 medium, 7
@@ -792,26 +793,26 @@ server/discovery.js, server/registry-watcher.js, and server/list-adapters.js.
 
 #### Deliverables
 
-- [ ] H3: Reorder watchDb after attachWsServer to avoid scheduleListRefresh TDZ
+- [x] H3: Reorder watchDb after attachWsServer to avoid scheduleListRefresh TDZ
       reference (`server/index.js:85-90`). (high)
-- [ ] Me6: Add symlink detection to prevent infinite loops on cyclic links
+- [x] Me6: Add symlink detection to prevent infinite loops on cyclic links
       (`server/discovery.js:76-79`). (medium)
-- [ ] Me7: Add unit tests for registry-watcher.js covering
+- [x] Me7: Add unit tests for registry-watcher.js covering
       getAvailableWorkspaces merge, dedup, readRegistry error handling, and
       findWorkspaceEntry path matching (`server/registry-watcher.js`). (medium)
-- [ ] Me8: Use path.resolve() consistently for dedup in discoverAndRegister to
+- [x] Me8: Use path.resolve() consistently for dedup in discoverAndRegister to
       match getAvailableWorkspaces behavior (`server/index.js:55-73`). (medium)
-- [ ] L6: Consider async scanning for settings-change re-scan path to avoid
+- [x] L6: Consider async scanning for settings-change re-scan path to avoid
       blocking the event loop (`server/discovery.js:90`). (low)
-- [ ] L7: Store watcher handles (watchRegistry, watchSettings) and clean up on
+- [x] L7: Store watcher handles (watchRegistry, watchSettings) and clean up on
       server shutdown (`server/index.js:129-137`). (low)
-- [ ] L8: Register discovered workspaces with meaningful database path instead
+- [x] L8: Register discovered workspaces with meaningful database path instead
       of empty string (`server/registry-watcher.js:22-31`). (low)
-- [ ] I4: Add --limit flag to status-issues queries for consistency with other
+- [x] I4: Add --limit flag to status-issues queries for consistency with other
       subscription types (`server/list-adapters.js`). (informational)
-- [ ] I8: Add logging for readRegistry errors instead of silent empty array
+- [x] I8: Add logging for readRegistry errors instead of silent empty array
       return (`server/registry-watcher.js`). (informational)
-- [ ] I9: Implement proactive workspace list push in watchRegistry callback
+- [x] I9: Implement proactive workspace list push in watchRegistry callback
       instead of no-op (`server/index.js:129-137`). (informational)
 
 #### Decisions
@@ -824,10 +825,10 @@ server/discovery.js, server/registry-watcher.js, and server/list-adapters.js.
 
 #### Verification
 
-- [ ] `npm test` passes (including new registry-watcher tests)
-- [ ] `npm run tsc` passes
-- [ ] `npm run lint` passes
-- [ ] Server startup ordering verified with watchDb after attachWsServer
+- [x] `npm test` passes (including new registry-watcher tests)
+- [x] `npm run tsc` passes
+- [x] `npm run lint` passes
+- [x] Server startup ordering verified with watchDb after attachWsServer
 
 ### Phase R5: Settings Validation
 

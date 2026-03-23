@@ -40,6 +40,14 @@ export function getInMemoryWorkspaces() {
 }
 
 /**
+ * Clear all dynamically registered workspaces. Used in tests to reset
+ * module-level state between test cases.
+ */
+export function clearInMemoryWorkspaces() {
+  inMemoryWorkspaces.clear();
+}
+
+/**
  * @typedef {Object} RegistryEntry
  * @property {string} workspace_path
  * @property {string} socket_path
@@ -72,7 +80,8 @@ export function readRegistry() {
       return data;
     }
     return [];
-  } catch {
+  } catch (err) {
+    log('failed to read registry: %o', err);
     return [];
   }
 }
