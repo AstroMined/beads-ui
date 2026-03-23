@@ -154,11 +154,7 @@ export function isRequest(value) {
   if (!isRecord(value)) {
     return false;
   }
-  return (
-    typeof value.id === 'string' &&
-    typeof value.type === 'string' &&
-    (value.payload === undefined || 'payload' in value)
-  );
+  return typeof value.id === 'string' && isMessageType(value.type);
 }
 
 /**
