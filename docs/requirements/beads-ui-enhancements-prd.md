@@ -689,26 +689,26 @@ robustness in app/main.js and app/protocol.js.
 
 #### Deliverables
 
-- [ ] C1: Fix race condition where get-settings fetch completes after initial
+- [x] C1: Fix race condition where get-settings fetch completes after initial
       ensureTabSubscriptions (`app/main.js:529-547`). Await settings response
       before first board subscription, or re-trigger subscriptions when initial
       settings arrive. (critical)
-- [ ] H1: Add schema validation on settings-changed and get-settings column
+- [x] H1: Add schema validation on settings-changed and get-settings column
       definitions (`app/main.js:506,538`). Validate each column has id, label,
       subscription, drop_status as strings before assigning to board_columns.
       (high)
-- [ ] H2: Await unsubscribe promises in clearAndResubscribe before creating new
+- [x] H2: Await unsubscribe promises in clearAndResubscribe before creating new
       subscriptions (`app/main.js:189-230`). Prevents subscription ID conflicts
       and stale push data. (high)
-- [ ] Me1: Extract shared helper for duplicated snapshot/upsert/delete event
+- [x] Me1: Extract shared helper for duplicated snapshot/upsert/delete event
       handler pattern (`app/main.js:113-148`). (medium)
-- [ ] Me2: Add debug logging to silent catch blocks in push handlers
+- [x] Me2: Add debug logging to silent catch blocks in push handlers
       (`app/main.js:120,132,144`). (medium)
-- [ ] Me3: Rename shadowed `data` variable in store.subscribe callback
+- [x] Me3: Rename shadowed `data` variable in store.subscribe callback
       (`app/main.js:614`). (medium)
-- [ ] Me4: Consolidate two separate store.subscribe persistence callbacks into
+- [x] Me4: Consolidate two separate store.subscribe persistence callbacks into
       one (`app/main.js:612-634`). (medium)
-- [ ] Me5: Strengthen isRequest type guard to validate message type against
+- [x] Me5: Strengthen isRequest type guard to validate message type against
       MESSAGE_TYPES (`app/protocol.js:153-162`). (medium)
 
 #### Decisions
@@ -721,11 +721,11 @@ robustness in app/main.js and app/protocol.js.
 
 #### Verification
 
-- [ ] `npm test` passes
-- [ ] `npm run tsc` passes
-- [ ] `npm run lint` passes
-- [ ] Board renders server-configured columns on first load (not defaults)
-- [ ] Settings hot-reload completes without subscription conflicts
+- [x] `npm test` passes
+- [x] `npm run tsc` passes
+- [x] `npm run lint` passes
+- [x] Board renders server-configured columns on first load (not defaults)
+- [x] Settings hot-reload completes without subscription conflicts
 
 ### Phase R3: Board View Lifecycle
 
