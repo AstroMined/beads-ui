@@ -122,4 +122,18 @@ describe('server/protocol', () => {
     expect(Array.isArray(MESSAGE_TYPES)).toBe(true);
     expect(MESSAGE_TYPES.length).toBeGreaterThan(0);
   });
+
+  test('isRequest rejects objects with invalid message types', () => {
+    expect(isRequest({ id: '1', type: 'not-a-real-type' })).toBe(false);
+    expect(isRequest({ id: '1', type: '' })).toBe(false);
+    expect(isRequest({ id: '1', type: 123 })).toBe(false);
+  });
+
+  test('isRequest accepts valid request objects', () => {
+    expect(isRequest({ id: '1', type: 'edit-text' })).toBe(true);
+    expect(
+      isRequest({ id: '1', type: 'list-issues', payload: { status: 'open' } })
+    ).toBe(true);
+    expect(isRequest({ id: '1', type: 'subscribe-list' })).toBe(true);
+  });
 });
