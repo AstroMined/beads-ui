@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS = {
 const SETTINGS_PATH = path.join(os.homedir(), '.beads', 'config.json');
 
 /** @type {SettingsObject} */
-let cached = DEFAULT_SETTINGS;
+let cached = structuredClone(DEFAULT_SETTINGS);
 
 /**
  * Load settings from ~/.beads/config.json.
@@ -77,7 +77,7 @@ export function loadSettings() {
     if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
       log('warning: failed to parse settings file, using defaults: %o', err);
     }
-    cached = DEFAULT_SETTINGS;
+    cached = structuredClone(DEFAULT_SETTINGS);
   }
   return cached;
 }
@@ -88,7 +88,7 @@ export function loadSettings() {
  * @returns {SettingsObject}
  */
 export function getSettings() {
-  return cached;
+  return structuredClone(cached);
 }
 
 /**
@@ -115,6 +115,9 @@ export function watchSettings(onChange, options = {}) {
     }
     timer = setTimeout(() => {
       try {
+        // Change detection via JSON.stringify is key-order dependent: reordering
+        // keys in the JSON file without changing values will not trigger a change
+        // event. This is acceptable for the settings use case.
         const previous = JSON.stringify(cached);
         loadSettings();
         if (JSON.stringify(cached) !== previous) {
@@ -133,6 +136,8 @@ export function watchSettings(onChange, options = {}) {
       return { close() {} };
     }
 
+    // persistent:true keeps the Node.js process alive, which is intentional
+    // for a long-running server that should not exit when idle.
     watcher = fs.watch(
       settings_dir,
       { persistent: true },
@@ -163,25 +168,118 @@ export function watchSettings(onChange, options = {}) {
 }
 
 /**
+ * Validate that a column definition has all required fields with correct types.
+ *
+ * @param {unknown} col
+ * @returns {col is ColumnDefinition}
+ */
+function validateColumnDef(col) {
+  if (!col || typeof col !== 'object') {
+    return false;
+  }
+  const c = /** @type {Record<string, unknown>} */ (col);
+  return (
+    typeof c.id === 'string' &&
+    c.id.length > 0 &&
+    typeof c.label === 'string' &&
+    c.label.length > 0 &&
+    typeof c.subscription === 'string' &&
+    c.subscription.length > 0 &&
+    typeof c.drop_status === 'string' &&
+    c.drop_status.length > 0
+  );
+}
+
+/**
  * Deep-merge user settings over defaults so missing keys fall back gracefully.
  *
  * @param {Record<string, unknown>} user
  * @returns {SettingsObject}
  */
 function mergeDefaults(user) {
+  let columns = DEFAULT_SETTINGS.board.columns;
+  if (Array.isArray(/** @type {any} */ (user.board)?.columns)) {
+    const raw = /** @type {unknown[]} */ (
+      /** @type {any} */ (user.board).columns
+    );
+    const valid = raw.filter((col) => {
+      if (!validateColumnDef(col)) {
+        log('rejected invalid column definition: %o', col);
+        return false;
+      }
+      return true;
+    });
+    columns =
+      valid.length > 0
+        ? /** @type {ColumnDefinition[]} */ (valid)
+        : DEFAULT_SETTINGS.board.columns;
+  }
+
+  const userServer = /** @type {Record<string, unknown>} */ (user.server || {});
+  const serverOverrides = { ...userServer };
+  if ('port' in serverOverrides) {
+    const p = serverOverrides.port;
+    if (
+      !Number.isInteger(p) ||
+      /** @type {number} */ (p) < 1 ||
+      /** @type {number} */ (p) > 65535
+    ) {
+      log('rejected invalid port value, using default: %o', p);
+      delete serverOverrides.port;
+    }
+  }
+  if ('host' in serverOverrides) {
+    if (
+      typeof serverOverrides.host !== 'string' ||
+      serverOverrides.host.length === 0
+    ) {
+      log(
+        'rejected invalid host value, using default: %o',
+        serverOverrides.host
+      );
+      delete serverOverrides.host;
+    }
+  }
+
+  const userDiscovery = /** @type {Record<string, unknown>} */ (
+    user.discovery || {}
+  );
+  const discoveryOverrides = { ...userDiscovery };
+  if ('scan_roots' in discoveryOverrides) {
+    const roots = discoveryOverrides.scan_roots;
+    if (Array.isArray(roots)) {
+      const valid = roots.filter((r) => typeof r === 'string' && r.length > 0);
+      if (valid.length > 0) {
+        discoveryOverrides.scan_roots = valid;
+      } else {
+        log('rejected empty scan_roots after filtering, using default');
+        delete discoveryOverrides.scan_roots;
+      }
+    } else {
+      log(
+        'rejected invalid scan_roots (not an array), using default: %o',
+        roots
+      );
+      delete discoveryOverrides.scan_roots;
+    }
+  }
+  if ('scan_depth' in discoveryOverrides) {
+    const d = discoveryOverrides.scan_depth;
+    if (!Number.isInteger(d) || /** @type {number} */ (d) <= 0) {
+      log('rejected invalid scan_depth, using default: %o', d);
+      delete discoveryOverrides.scan_depth;
+    }
+  }
+
   return {
     server: {
       ...DEFAULT_SETTINGS.server,
-      .../** @type {Record<string, unknown>} */ (user.server || {})
+      .../** @type {Record<string, unknown>} */ (serverOverrides)
     },
-    board: {
-      columns: Array.isArray(/** @type {any} */ (user.board)?.columns)
-        ? /** @type {any} */ (user.board).columns
-        : DEFAULT_SETTINGS.board.columns
-    },
+    board: { columns },
     discovery: {
       ...DEFAULT_SETTINGS.discovery,
-      .../** @type {Record<string, unknown>} */ (user.discovery || {})
+      .../** @type {Record<string, unknown>} */ (discoveryOverrides)
     }
   };
 }

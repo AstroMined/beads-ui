@@ -1,13 +1,14 @@
 # beads-ui Enhancements PRD
 
-**Status:** Remediation Pending **Date:** 2026-03-22 (Phase 0 completed
-2026-03-22, Phase 1 completed 2026-03-23, Phase 2 completed 2026-03-22,
-Phase 3 completed 2026-03-23) **Author:** Ryan Peterson **Related:**
+**Status:** Complete **Date:** 2026-03-23 (Phase 0 completed 2026-03-22, Phase 1
+completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3 completed
+2026-03-23, R5 completed 2026-03-23) **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
-> **Review Round 1**: 40 findings (1 critical, 4 major, 3 high, 8 medium, 7 minor, 8 low, 9 informational) across 4 remediation phases
-> **Completion**: 35 of 35 requirements implemented (100%)
-> **Epics**: beads-ui-w49.1, beads-ui-w49.2, beads-ui-w49.3, beads-ui-w49.4
+> **Review Round 1**: 40 findings (1 critical, 4 major, 3 high, 8 medium, 7
+> minor, 8 low, 9 informational) across 4 remediation phases **Completion**: 35
+> of 35 requirements implemented (100%) **Epics**: beads-ui-w49.1,
+> beads-ui-w49.2, beads-ui-w49.3, beads-ui-w49.4
 
 ## Context
 
@@ -675,15 +676,14 @@ column model (`col_defs`, `column_data` Map, `column_raw` Map).
 ## Remediation Requirements (Added at Review - Round 2)
 
 Review conducted on 2026-03-22. Comprehensive code review across all 4 phases
-identified 40 findings (1 critical, 4 major, 3 high, 8 medium, 7 minor, 8 low,
-9 informational). All classified as Fix Required, grouped into 4 remediation
+identified 40 findings (1 critical, 4 major, 3 high, 8 medium, 7 minor, 8 low, 9
+informational). All classified as Fix Required, grouped into 4 remediation
 phases below.
 
 ### Phase R2: App Bootstrap Resilience
 
-**Priority**: P1
-**Scope**: Fix race condition in settings bootstrap, add column schema
-validation, fix async unsubscribe ordering, and improve push handler
+**Priority**: P1 **Scope**: Fix race condition in settings bootstrap, add column
+schema validation, fix async unsubscribe ordering, and improve push handler
 robustness in app/main.js and app/protocol.js.
 
 #### Deliverables
@@ -696,27 +696,27 @@ robustness in app/main.js and app/protocol.js.
       definitions (`app/main.js:506,538`). Validate each column has id, label,
       subscription, drop_status as strings before assigning to board_columns.
       (high)
-- [ ] H2: Await unsubscribe promises in clearAndResubscribe before creating
-      new subscriptions (`app/main.js:189-230`). Prevents subscription ID
-      conflicts and stale push data. (high)
+- [ ] H2: Await unsubscribe promises in clearAndResubscribe before creating new
+      subscriptions (`app/main.js:189-230`). Prevents subscription ID conflicts
+      and stale push data. (high)
 - [ ] Me1: Extract shared helper for duplicated snapshot/upsert/delete event
       handler pattern (`app/main.js:113-148`). (medium)
 - [ ] Me2: Add debug logging to silent catch blocks in push handlers
       (`app/main.js:120,132,144`). (medium)
 - [ ] Me3: Rename shadowed `data` variable in store.subscribe callback
       (`app/main.js:614`). (medium)
-- [ ] Me4: Consolidate two separate store.subscribe persistence callbacks
-      into one (`app/main.js:612-634`). (medium)
+- [ ] Me4: Consolidate two separate store.subscribe persistence callbacks into
+      one (`app/main.js:612-634`). (medium)
 - [ ] Me5: Strengthen isRequest type guard to validate message type against
       MESSAGE_TYPES (`app/protocol.js:153-162`). (medium)
 
 #### Decisions
 
-| Finding | Category | Resolution Path |
-|---------|----------|-----------------|
-| C1 | MIGRATION_INCOMPLETE | Await get-settings before onRouteChange, or re-subscribe on response |
-| H1 | COVERAGE_GAP | Per-column field validation with fallback to defaults |
-| H2 | MIGRATION_INCOMPLETE | Sequential async teardown before rebuild |
+| Finding | Category             | Resolution Path                                                      |
+| ------- | -------------------- | -------------------------------------------------------------------- |
+| C1      | MIGRATION_INCOMPLETE | Await get-settings before onRouteChange, or re-subscribe on response |
+| H1      | COVERAGE_GAP         | Per-column field validation with fallback to defaults                |
+| H2      | MIGRATION_INCOMPLETE | Sequential async teardown before rebuild                             |
 
 #### Verification
 
@@ -728,10 +728,9 @@ robustness in app/main.js and app/protocol.js.
 
 ### Phase R3: Board View Lifecycle
 
-**Priority**: P1
-**Scope**: Fix memory leaks in board view teardown, correct subscription mode
-mapping for dynamic columns, harden filter null safety, and clean up minor
-code quality issues in app/views/board.js and app/state.js.
+**Priority**: P1 **Scope**: Fix memory leaks in board view teardown, correct
+subscription mode mapping for dynamic columns, harden filter null safety, and
+clean up minor code quality issues in app/views/board.js and app/state.js.
 
 #### Deliverables
 
@@ -739,24 +738,24 @@ code quality issues in app/views/board.js and app/state.js.
       clear() (`app/views/board.js:872-880`). Prevents ghost renders from
       orphaned closures on settings-change rebuild. (major)
 - [ ] M2: Remove 4 event listeners (keydown, dragover, dragleave, drop) on
-      mount_element in clear() (`app/views/board.js:499,602,625,636`).
-      Prevents duplicate handlers accumulating on rebuild. (major)
-- [ ] M3: Fix subscriptionToMode to handle unknown subscription types
-      correctly (`app/views/board.js:761-773`). Derive mode from column
-      drop_status or ColumnDef rather than defaulting to 'ready'. (major)
+      mount_element in clear() (`app/views/board.js:499,602,625,636`). Prevents
+      duplicate handlers accumulating on rebuild. (major)
+- [ ] M3: Fix subscriptionToMode to handle unknown subscription types correctly
+      (`app/views/board.js:761-773`). Derive mode from column drop_status or
+      ColumnDef rather than defaulting to 'ready'. (major)
 - [ ] M4: Normalize undefined to null in applyBoardFilters filter comparison
       (`app/views/board.js:796`). Prevent accidental filtering when
       board_filters state is partially constructed. (major)
-- [ ] Mi1: Use column ID in closed filter select element ID instead of
-      hardcoded "closed-filter" (`app/views/board.js:306`). (minor)
+- [ ] Mi1: Use column ID in closed filter select element ID instead of hardcoded
+      "closed-filter" (`app/views/board.js:306`). (minor)
 - [ ] Mi2: Replace em-dash with hyphen in aria-label string
       (`app/views/board.js:484`). (minor)
-- [ ] Mi3: Update fallback fetch to handle dynamic column types, not just
-      legacy 4-method API (`app/views/board.js:914`). (minor)
+- [ ] Mi3: Update fallback fetch to handle dynamic column types, not just legacy
+      4-method API (`app/views/board.js:914`). (minor)
 - [ ] Mi4: Replace identity .map((it) => it) with .slice()
       (`app/views/board.js:936`). (minor)
-- [ ] Mi5: Move filter_options from module-level mutable to local variable
-      or return value (`app/views/board.js:129-130`). (minor)
+- [ ] Mi5: Move filter_options from module-level mutable to local variable or
+      return value (`app/views/board.js:129-130`). (minor)
 - [ ] Mi6: Update setState JSDoc signature to include board and view fields
       (`app/state.js:55`). (minor)
 - [ ] Mi7: Review shallow workspace comparison for deep change detection
@@ -770,11 +769,11 @@ code quality issues in app/views/board.js and app/state.js.
 
 #### Decisions
 
-| Finding | Category | Resolution Path |
-|---------|----------|-----------------|
-| M1, M2 | ABSTRACTION_MISSING | Add destroy/cleanup lifecycle to board view |
-| M3 | MIGRATION_INCOMPLETE | Mode mapping not updated for dynamic columns |
-| M4 | COVERAGE_GAP | Null/undefined normalization in filter logic |
+| Finding | Category             | Resolution Path                              |
+| ------- | -------------------- | -------------------------------------------- |
+| M1, M2  | ABSTRACTION_MISSING  | Add destroy/cleanup lifecycle to board view  |
+| M3      | MIGRATION_INCOMPLETE | Mode mapping not updated for dynamic columns |
+| M4      | COVERAGE_GAP         | Null/undefined normalization in filter logic |
 
 #### Verification
 
@@ -786,34 +785,30 @@ code quality issues in app/views/board.js and app/state.js.
 
 ### Phase R4: Discovery and Registry Hardening
 
-**Priority**: P2
-**Scope**: Fix TDZ risk in server startup ordering, add symlink loop
-protection, add test coverage for registry-watcher.js, fix path dedup
+**Priority**: P2 **Scope**: Fix TDZ risk in server startup ordering, add symlink
+loop protection, add test coverage for registry-watcher.js, fix path dedup
 inconsistency, and address watcher cleanup in server/index.js,
-server/discovery.js, server/registry-watcher.js, and
-server/list-adapters.js.
+server/discovery.js, server/registry-watcher.js, and server/list-adapters.js.
 
 #### Deliverables
 
-- [ ] H3: Reorder watchDb after attachWsServer to avoid scheduleListRefresh
-      TDZ reference (`server/index.js:85-90`). (high)
+- [ ] H3: Reorder watchDb after attachWsServer to avoid scheduleListRefresh TDZ
+      reference (`server/index.js:85-90`). (high)
 - [ ] Me6: Add symlink detection to prevent infinite loops on cyclic links
       (`server/discovery.js:76-79`). (medium)
 - [ ] Me7: Add unit tests for registry-watcher.js covering
       getAvailableWorkspaces merge, dedup, readRegistry error handling, and
-      findWorkspaceEntry path matching (`server/registry-watcher.js`).
-      (medium)
-- [ ] Me8: Use path.resolve() consistently for dedup in discoverAndRegister
-      to match getAvailableWorkspaces behavior
-      (`server/index.js:55-73`). (medium)
+      findWorkspaceEntry path matching (`server/registry-watcher.js`). (medium)
+- [ ] Me8: Use path.resolve() consistently for dedup in discoverAndRegister to
+      match getAvailableWorkspaces behavior (`server/index.js:55-73`). (medium)
 - [ ] L6: Consider async scanning for settings-change re-scan path to avoid
       blocking the event loop (`server/discovery.js:90`). (low)
-- [ ] L7: Store watcher handles (watchRegistry, watchSettings) and clean up
-      on server shutdown (`server/index.js:129-137`). (low)
-- [ ] L8: Register discovered workspaces with meaningful database path
-      instead of empty string (`server/registry-watcher.js:22-31`). (low)
-- [ ] I4: Add --limit flag to status-issues queries for consistency with
-      other subscription types (`server/list-adapters.js`). (informational)
+- [ ] L7: Store watcher handles (watchRegistry, watchSettings) and clean up on
+      server shutdown (`server/index.js:129-137`). (low)
+- [ ] L8: Register discovered workspaces with meaningful database path instead
+      of empty string (`server/registry-watcher.js:22-31`). (low)
+- [ ] I4: Add --limit flag to status-issues queries for consistency with other
+      subscription types (`server/list-adapters.js`). (informational)
 - [ ] I8: Add logging for readRegistry errors instead of silent empty array
       return (`server/registry-watcher.js`). (informational)
 - [ ] I9: Implement proactive workspace list push in watchRegistry callback
@@ -821,11 +816,11 @@ server/list-adapters.js.
 
 #### Decisions
 
-| Finding | Category | Resolution Path |
-|---------|----------|-----------------|
-| H3 | MIGRATION_INCOMPLETE | Reorder startup sequence |
-| Me6 | COVERAGE_GAP | entry.isSymbolicLink() check or visited inode tracking |
-| Me7 | COVERAGE_GAP | New test file server/registry-watcher.test.js |
+| Finding | Category             | Resolution Path                                        |
+| ------- | -------------------- | ------------------------------------------------------ |
+| H3      | MIGRATION_INCOMPLETE | Reorder startup sequence                               |
+| Me6     | COVERAGE_GAP         | entry.isSymbolicLink() check or visited inode tracking |
+| Me7     | COVERAGE_GAP         | New test file server/registry-watcher.test.js          |
 
 #### Verification
 
@@ -836,45 +831,43 @@ server/list-adapters.js.
 
 ### Phase R5: Settings Validation
 
-**Priority**: P2
-**Scope**: Add input validation for user-supplied settings, fix mutable
-reference sharing, and harden settings module in server/settings.js and
+**Priority**: P2 **Scope**: Add input validation for user-supplied settings, fix
+mutable reference sharing, and harden settings module in server/settings.js and
 server/config.js.
 
 #### Deliverables
 
-- [ ] L1: Initialize cached settings as a clone of DEFAULT_SETTINGS, not a
+- [x] L1: Initialize cached settings as a clone of DEFAULT_SETTINGS, not a
       shared reference (`server/settings.js:62`). (low)
-- [ ] L2: Return a frozen or cloned copy from getSettings() to prevent
+- [x] L2: Return a frozen or cloned copy from getSettings() to prevent
       accidental mutation (`server/settings.js:90-92`). (low)
-- [ ] L3: Validate user-supplied column definitions in mergeDefaults -
-      check each element has id, label, subscription, drop_status as strings.
-      Reject or filter invalid entries (`server/settings.js:171-187`). (low)
-- [ ] L4: Validate discovery section values - scan_roots is array of strings,
+- [x] L3: Validate user-supplied column definitions in mergeDefaults - check
+      each element has id, label, subscription, drop_status as strings. Reject
+      or filter invalid entries (`server/settings.js:171-187`). (low)
+- [x] L4: Validate discovery section values - scan_roots is array of strings,
       scan_depth is positive integer (`server/settings.js:171-187`). (low)
-- [ ] L5: Validate server section values - port is number, host is string
+- [x] L5: Validate server section values - port is number, host is string
       (`server/settings.js:171-187`). (low)
-- [ ] I5: Document that JSON.stringify change detection is key-order
-      dependent (acceptable behavior) (`server/settings.js`).
-      (informational)
-- [ ] I6: Document that persistent:true on watcher is intentional for
+- [x] I5: Document that JSON.stringify change detection is key-order dependent
+      (acceptable behavior) (`server/settings.js`). (informational)
+- [x] I6: Document that persistent:true on watcher is intentional for
       long-running server (`server/settings.js`). (informational)
-- [ ] I7: Document that CLI flag precedence is achieved via process.env
-      mutation in index.js (`server/config.js`). (informational)
+- [x] I7: Document that CLI flag precedence is achieved via process.env mutation
+      in index.js (`server/config.js`). (informational)
 
 #### Decisions
 
-| Finding | Category | Resolution Path |
-|---------|----------|-----------------|
-| L1, L2 | ABSTRACTION_MISSING | Immutable settings access pattern |
-| L3, L4, L5 | COVERAGE_GAP | validateSettings() function in mergeDefaults |
+| Finding    | Category            | Resolution Path                              |
+| ---------- | ------------------- | -------------------------------------------- |
+| L1, L2     | ABSTRACTION_MISSING | Immutable settings access pattern            |
+| L3, L4, L5 | COVERAGE_GAP        | validateSettings() function in mergeDefaults |
 
 #### Verification
 
-- [ ] `npm test` passes (including new validation tests)
-- [ ] `npm run tsc` passes
-- [ ] `npm run lint` passes
-- [ ] Malformed config.json logs warning and falls back to defaults
+- [x] `npm test` passes (including new validation tests)
+- [x] `npm run tsc` passes
+- [x] `npm run lint` passes
+- [x] Malformed config.json logs warning and falls back to defaults
 
 ## Remaining Open Questions
 

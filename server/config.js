@@ -15,6 +15,10 @@ import { getSettings } from './settings.js';
  * @param {import('./settings.js').SettingsObject} [settings] - Optional settings override (defaults to getSettings()).
  * @returns {{ host: string, port: number, app_dir: string, root_dir: string, url: string }}
  */
+// CLI flag precedence is achieved via process.env mutation in server/index.js
+// (lines 22-29), where --host and --port argv values are written to process.env
+// before getConfig() is called. The precedence chain is:
+// CLI flags (via env mutation) > pre-existing env vars > settings file > defaults.
 export function getConfig(settings) {
   const s = settings || getSettings();
   const this_file = fileURLToPath(new URL(import.meta.url));

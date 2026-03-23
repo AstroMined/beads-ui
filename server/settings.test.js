@@ -277,6 +277,224 @@ describe('settings', () => {
     });
   });
 
+  describe('immutable settings (L1+L2)', () => {
+    test('getSettings returns a clone, not the cached reference', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
+      );
+      const { loadSettings, getSettings } = await freshImport();
+      loadSettings();
+
+      const first = getSettings();
+      first.server.port = 9999;
+      const second = getSettings();
+      expect(second.server.port).toBe(3000);
+    });
+
+    test('mutating returned settings does not affect cached state', async () => {
+      const { getSettings } = await freshImport();
+      const settings = getSettings();
+      settings.board.columns = [];
+      const fresh = getSettings();
+      expect(fresh.board.columns.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('column validation (L3)', () => {
+    test('filters out malformed column definitions', async () => {
+      const columns = [
+        {
+          id: 'valid',
+          label: 'Valid',
+          subscription: 'ready-issues',
+          drop_status: 'open'
+        },
+        { id: '', label: 'Empty ID', subscription: 's', drop_status: 'd' },
+        null,
+        42,
+        { label: 'Missing ID', subscription: 's', drop_status: 'd' }
+      ];
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ board: { columns } })
+      );
+      const { loadSettings } = await freshImport();
+      const result = loadSettings();
+      expect(result.board.columns).toEqual([
+        {
+          id: 'valid',
+          label: 'Valid',
+          subscription: 'ready-issues',
+          drop_status: 'open'
+        }
+      ]);
+    });
+
+    test('falls back to defaults when all columns are invalid', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ board: { columns: [null, {}, 'garbage'] } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.board.columns).toEqual(DEFAULT_SETTINGS.board.columns);
+    });
+
+    test('keeps only valid entries from partially valid array', async () => {
+      const columns = [
+        {
+          id: 'a',
+          label: 'A',
+          subscription: 'sub-a',
+          drop_status: 'open'
+        },
+        { id: 'b' },
+        {
+          id: 'c',
+          label: 'C',
+          subscription: 'sub-c',
+          drop_status: 'closed'
+        }
+      ];
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ board: { columns } })
+      );
+      const { loadSettings } = await freshImport();
+      const result = loadSettings();
+      expect(result.board.columns).toHaveLength(2);
+      expect(result.board.columns[0].id).toBe('a');
+      expect(result.board.columns[1].id).toBe('c');
+    });
+  });
+
+  describe('discovery validation (L4)', () => {
+    test('invalid scan_roots (non-array) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ discovery: { scan_roots: 'not-an-array' } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.discovery.scan_roots).toEqual(
+        DEFAULT_SETTINGS.discovery.scan_roots
+      );
+    });
+
+    test('invalid scan_roots (array with non-strings) filters them out', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({
+          discovery: { scan_roots: ['/valid', 42, null, '/also-valid', ''] }
+        })
+      );
+      const { loadSettings } = await freshImport();
+      const result = loadSettings();
+      expect(result.discovery.scan_roots).toEqual(['/valid', '/also-valid']);
+    });
+
+    test('empty scan_roots after filtering falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ discovery: { scan_roots: [42, null, ''] } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.discovery.scan_roots).toEqual(
+        DEFAULT_SETTINGS.discovery.scan_roots
+      );
+    });
+
+    test('invalid scan_depth (negative) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ discovery: { scan_depth: -5 } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.discovery.scan_depth).toBe(
+        DEFAULT_SETTINGS.discovery.scan_depth
+      );
+    });
+
+    test('invalid scan_depth (float) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ discovery: { scan_depth: 2.5 } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.discovery.scan_depth).toBe(
+        DEFAULT_SETTINGS.discovery.scan_depth
+      );
+    });
+
+    test('invalid scan_depth (string) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ discovery: { scan_depth: 'deep' } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.discovery.scan_depth).toBe(
+        DEFAULT_SETTINGS.discovery.scan_depth
+      );
+    });
+  });
+
+  describe('server validation (L5)', () => {
+    test('invalid port (string) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { port: 'banana' } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.server.port).toBe(DEFAULT_SETTINGS.server.port);
+    });
+
+    test('invalid port (negative) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { port: -1 } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.server.port).toBe(DEFAULT_SETTINGS.server.port);
+    });
+
+    test('invalid port (> 65535) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { port: 70000 } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.server.port).toBe(DEFAULT_SETTINGS.server.port);
+    });
+
+    test('invalid host (non-string) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { host: 12345 } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.server.host).toBe(DEFAULT_SETTINGS.server.host);
+    });
+
+    test('invalid host (empty string) falls back to defaults', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { host: '' } })
+      );
+      const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
+      const result = loadSettings();
+      expect(result.server.host).toBe(DEFAULT_SETTINGS.server.host);
+    });
+  });
+
   describe('config integration', () => {
     test('getConfig uses settings for port when env var not set', async () => {
       file_contents.set(
