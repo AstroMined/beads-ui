@@ -199,7 +199,9 @@ function validateColumnDef(col) {
 function mergeDefaults(user) {
   let columns = DEFAULT_SETTINGS.board.columns;
   if (Array.isArray(/** @type {any} */ (user.board)?.columns)) {
-    const raw = /** @type {unknown[]} */ (/** @type {any} */ (user.board).columns);
+    const raw = /** @type {unknown[]} */ (
+      /** @type {any} */ (user.board).columns
+    );
     const valid = raw.filter((col) => {
       if (!validateColumnDef(col)) {
         log('rejected invalid column definition: %o', col);
@@ -207,26 +209,41 @@ function mergeDefaults(user) {
       }
       return true;
     });
-    columns = valid.length > 0 ? /** @type {ColumnDefinition[]} */ (valid) : DEFAULT_SETTINGS.board.columns;
+    columns =
+      valid.length > 0
+        ? /** @type {ColumnDefinition[]} */ (valid)
+        : DEFAULT_SETTINGS.board.columns;
   }
 
   const userServer = /** @type {Record<string, unknown>} */ (user.server || {});
   const serverOverrides = { ...userServer };
   if ('port' in serverOverrides) {
     const p = serverOverrides.port;
-    if (!Number.isInteger(p) || /** @type {number} */ (p) < 1 || /** @type {number} */ (p) > 65535) {
+    if (
+      !Number.isInteger(p) ||
+      /** @type {number} */ (p) < 1 ||
+      /** @type {number} */ (p) > 65535
+    ) {
       log('rejected invalid port value, using default: %o', p);
       delete serverOverrides.port;
     }
   }
   if ('host' in serverOverrides) {
-    if (typeof serverOverrides.host !== 'string' || serverOverrides.host.length === 0) {
-      log('rejected invalid host value, using default: %o', serverOverrides.host);
+    if (
+      typeof serverOverrides.host !== 'string' ||
+      serverOverrides.host.length === 0
+    ) {
+      log(
+        'rejected invalid host value, using default: %o',
+        serverOverrides.host
+      );
       delete serverOverrides.host;
     }
   }
 
-  const userDiscovery = /** @type {Record<string, unknown>} */ (user.discovery || {});
+  const userDiscovery = /** @type {Record<string, unknown>} */ (
+    user.discovery || {}
+  );
   const discoveryOverrides = { ...userDiscovery };
   if ('scan_roots' in discoveryOverrides) {
     const roots = discoveryOverrides.scan_roots;
@@ -239,7 +256,10 @@ function mergeDefaults(user) {
         delete discoveryOverrides.scan_roots;
       }
     } else {
-      log('rejected invalid scan_roots (not an array), using default: %o', roots);
+      log(
+        'rejected invalid scan_roots (not an array), using default: %o',
+        roots
+      );
       delete discoveryOverrides.scan_roots;
     }
   }
