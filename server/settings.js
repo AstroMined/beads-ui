@@ -53,7 +53,7 @@ const DEFAULT_COLUMNS = [
 export const DEFAULT_SETTINGS = {
   server: { port: 3000, host: '127.0.0.1' },
   board: { columns: DEFAULT_COLUMNS },
-  discovery: { scan_roots: [], scan_depth: 3 }
+  discovery: { scan_roots: [], scan_depth: 2 }
 };
 
 const SETTINGS_PATH = path.join(os.homedir(), '.beads', 'config.json');
