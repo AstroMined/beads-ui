@@ -84,10 +84,37 @@ const { scheduleListRefresh, broadcastSettingsChanged } = attachWsServer(
   }
 );
 
+// Track previous discovery settings for change comparison
+let prev_scan_roots = JSON.stringify(settings.discovery.scan_roots || []);
+let prev_scan_depth = settings.discovery.scan_depth ?? 2;
+
 // Watch settings file for changes and push to connected clients
 watchSettings((new_settings) => {
   log('settings changed, broadcasting to clients');
   broadcastSettingsChanged(new_settings);
+
+  // Re-scan if discovery settings changed
+  const new_roots = new_settings.discovery?.scan_roots || [];
+  const new_depth = new_settings.discovery?.scan_depth ?? 2;
+  const new_roots_str = JSON.stringify(new_roots);
+  if (new_roots_str !== prev_scan_roots || new_depth !== prev_scan_depth) {
+    prev_scan_roots = new_roots_str;
+    prev_scan_depth = new_depth;
+    if (new_roots.length > 0) {
+      log('re-scanning workspaces: roots=%o depth=%d', new_roots, new_depth);
+      const discovered = scanForWorkspaces(new_roots, new_depth);
+      const existing = getAvailableWorkspaces();
+      const existing_paths = new Set(existing.map((w) => w.path));
+      let re_registered = 0;
+      for (const ws of discovered) {
+        if (!existing_paths.has(ws.workspace_path)) {
+          registerWorkspace({ path: ws.workspace_path, database: '' });
+          re_registered++;
+        }
+      }
+      log('re-scan found %d workspaces, registered %d new', discovered.length, re_registered);
+    }
+  }
 });
 
 // Watch the global registry for workspace changes (e.g., when user starts
