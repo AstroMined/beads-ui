@@ -74,6 +74,10 @@ function walkDir(dir, depth, results) {
   }
 
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) {
+      log('skipping symlink: %s', path.join(dir, entry.name));
+      continue;
+    }
     if (entry.isDirectory() && !shouldSkip(entry.name)) {
       walkDir(path.join(dir, entry.name), depth - 1, results);
     }
