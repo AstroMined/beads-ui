@@ -149,6 +149,38 @@ export function bootstrap(root_element) {
     // Derived list selectors: render from per-subscription snapshots
     const listSelectors = createListSelectors(sub_issue_stores);
 
+    // Board column definitions (dynamic from settings)
+    /** @type {Map<string, () => Promise<void>>} */
+    const unsub_board_map = new Map();
+
+    /** @type {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>} */
+    let board_columns = [
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
+    ];
+
     // --- Workspace management ---
     /**
      * Clear all subscriptions and stores, then re-establish them.
@@ -165,31 +197,16 @@ export function bootstrap(root_element) {
         void unsub_epics_tab().catch(() => {});
         unsub_epics_tab = null;
       }
-      if (unsub_board_ready) {
-        void unsub_board_ready().catch(() => {});
-        unsub_board_ready = null;
+      for (const [, unsub] of unsub_board_map) {
+        void unsub().catch(() => {});
       }
-      if (unsub_board_in_progress) {
-        void unsub_board_in_progress().catch(() => {});
-        unsub_board_in_progress = null;
-      }
-      if (unsub_board_closed) {
-        void unsub_board_closed().catch(() => {});
-        unsub_board_closed = null;
-      }
-      if (unsub_board_blocked) {
-        void unsub_board_blocked().catch(() => {});
-        unsub_board_blocked = null;
-      }
+      unsub_board_map.clear();
       // Clear all subscription stores
-      const storeIds = [
-        'tab:issues',
-        'tab:epics',
-        'tab:board:ready',
-        'tab:board:in-progress',
-        'tab:board:closed',
-        'tab:board:blocked'
-      ];
+      /** @type {string[]} */
+      const storeIds = ['tab:issues', 'tab:epics'];
+      for (const col of board_columns) {
+        storeIds.push('tab:board:' + col.id);
+      }
       for (const id of storeIds) {
         try {
           sub_issue_stores.unregister(id);
@@ -432,6 +449,80 @@ export function bootstrap(root_element) {
         return [];
       }
     };
+
+    // Settings-changed: update board columns when config changes
+    client.on('settings-changed', (payload) => {
+      log('settings-changed event: %o', payload);
+      const p = /** @type {any} */ (payload);
+      if (
+        p &&
+        p.settings &&
+        p.settings.board &&
+        Array.isArray(p.settings.board.columns)
+      ) {
+        const new_cols = p.settings.board.columns;
+        const old_key = JSON.stringify(board_columns);
+        const new_key = JSON.stringify(new_cols);
+        if (old_key !== new_key) {
+          log('board columns changed, rebuilding');
+          // Tear down existing board subscriptions
+          for (const [client_id, unsub] of unsub_board_map) {
+            void unsub().catch(() => {});
+            try {
+              sub_issue_stores.unregister(client_id);
+            } catch (err) {
+              log(
+                'unregister %s on settings change failed: %o',
+                client_id,
+                err
+              );
+            }
+          }
+          unsub_board_map.clear();
+          // Update column definitions
+          board_columns = new_cols;
+          // Re-create board view with new columns
+          board_view = createBoardView(
+            board_root,
+            data,
+            (id) => router.gotoIssue(id),
+            store,
+            subscriptions,
+            sub_issue_stores,
+            transport,
+            board_columns
+          );
+          // If board is active, re-subscribe and load
+          const s = store.getState();
+          if (s && s.view === 'board') {
+            ensureTabSubscriptions(s);
+            void board_view.load();
+          }
+        }
+      }
+    });
+
+    // Fetch initial settings from server
+    void transport('get-settings', {})
+      .then((res) => {
+        const r = /** @type {any} */ (res);
+        if (
+          r &&
+          r.settings &&
+          r.settings.board &&
+          Array.isArray(r.settings.board.columns)
+        ) {
+          board_columns = r.settings.board.columns;
+          log(
+            'loaded board columns from settings: %d columns',
+            board_columns.length
+          );
+        }
+      })
+      .catch((err) => {
+        log('get-settings failed, using defaults: %o', err);
+      });
+
     // Top navigation (optional mount)
     if (nav_mount) {
       createTopNav(nav_mount, store, router);
@@ -632,14 +723,15 @@ export function bootstrap(root_element) {
       subscriptions,
       sub_issue_stores
     );
-    const board_view = createBoardView(
+    let board_view = createBoardView(
       board_root,
       data,
       (id) => router.gotoIssue(id),
       store,
       subscriptions,
       sub_issue_stores,
-      transport
+      transport,
+      board_columns
     );
     // Preload epics when switching to view
     /**
@@ -650,15 +742,6 @@ export function bootstrap(root_element) {
     let unsub_issues_tab = null;
     /** @type {null | (() => Promise<void>)} */
     let unsub_epics_tab = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_ready = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_in_progress = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_closed = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_blocked = null;
-
     // Track in-flight subscriptions to prevent duplicates during rapid view switching
     /** @type {Set<string>} */
     const pending_subscriptions = new Set();
@@ -778,142 +861,49 @@ export function bootstrap(root_element) {
 
       // Board tab subscribes to lists used by columns
       if (s.view === 'board') {
-        // Ready column
-        if (
-          !unsub_board_ready &&
-          !pending_subscriptions.has('tab:board:ready')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:ready', {
-              type: 'ready-issues'
-            });
-          } catch (err) {
-            log('register board:ready store failed: %o', err);
+        for (const col of board_columns) {
+          const client_id = 'tab:board:' + col.id;
+          if (
+            !unsub_board_map.has(client_id) &&
+            !pending_subscriptions.has(client_id)
+          ) {
+            /** @type {{ type: string, params?: Record<string, string | number | boolean> }} */
+            const spec = { type: col.subscription };
+            if (col.params) {
+              spec.params =
+                /** @type {Record<string, string | number | boolean>} */ (
+                  col.params
+                );
+            }
+            try {
+              sub_issue_stores.register(client_id, spec);
+            } catch (err) {
+              log('register %s store failed: %o', client_id, err);
+            }
+            pending_subscriptions.add(client_id);
+            void subscriptions
+              .subscribeList(client_id, spec)
+              .then((u) => unsub_board_map.set(client_id, u))
+              .catch((err) => {
+                log('subscribe %s failed: %o', client_id, err);
+                showFatalFromError(err, `board (${col.label})`);
+              })
+              .finally(() => {
+                pending_subscriptions.delete(client_id);
+              });
           }
-          pending_subscriptions.add('tab:board:ready');
-          void subscriptions
-            .subscribeList('tab:board:ready', { type: 'ready-issues' })
-            .then((u) => (unsub_board_ready = u))
-            .catch((err) => {
-              log('subscribe board ready failed: %o', err);
-              showFatalFromError(err, 'board (Ready)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:ready');
-            });
-        }
-        // In Progress column
-        if (
-          !unsub_board_in_progress &&
-          !pending_subscriptions.has('tab:board:in-progress')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:in-progress', {
-              type: 'in-progress-issues'
-            });
-          } catch (err) {
-            log('register board:in-progress store failed: %o', err);
-          }
-          pending_subscriptions.add('tab:board:in-progress');
-          void subscriptions
-            .subscribeList('tab:board:in-progress', {
-              type: 'in-progress-issues'
-            })
-            .then((u) => (unsub_board_in_progress = u))
-            .catch((err) => {
-              log('subscribe board in-progress failed: %o', err);
-              showFatalFromError(err, 'board (In Progress)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:in-progress');
-            });
-        }
-        // Closed column
-        if (
-          !unsub_board_closed &&
-          !pending_subscriptions.has('tab:board:closed')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:closed', {
-              type: 'closed-issues'
-            });
-          } catch (err) {
-            log('register board:closed store failed: %o', err);
-          }
-          pending_subscriptions.add('tab:board:closed');
-          void subscriptions
-            .subscribeList('tab:board:closed', { type: 'closed-issues' })
-            .then((u) => (unsub_board_closed = u))
-            .catch((err) => {
-              log('subscribe board closed failed: %o', err);
-              showFatalFromError(err, 'board (Closed)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:closed');
-            });
-        }
-        // Blocked column
-        if (
-          !unsub_board_blocked &&
-          !pending_subscriptions.has('tab:board:blocked')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:blocked', {
-              type: 'blocked-issues'
-            });
-          } catch (err) {
-            log('register board:blocked store failed: %o', err);
-          }
-          pending_subscriptions.add('tab:board:blocked');
-          void subscriptions
-            .subscribeList('tab:board:blocked', { type: 'blocked-issues' })
-            .then((u) => (unsub_board_blocked = u))
-            .catch((err) => {
-              log('subscribe board blocked failed: %o', err);
-              showFatalFromError(err, 'board (Blocked)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:blocked');
-            });
         }
       } else {
         // Unsubscribe all board lists when leaving the board view
-        if (unsub_board_ready) {
-          void unsub_board_ready().catch(() => {});
-          unsub_board_ready = null;
+        for (const [client_id, unsub] of unsub_board_map) {
+          void unsub().catch(() => {});
           try {
-            sub_issue_stores.unregister('tab:board:ready');
+            sub_issue_stores.unregister(client_id);
           } catch (err) {
-            log('unregister board:ready failed: %o', err);
+            log('unregister %s failed: %o', client_id, err);
           }
         }
-        if (unsub_board_in_progress) {
-          void unsub_board_in_progress().catch(() => {});
-          unsub_board_in_progress = null;
-          try {
-            sub_issue_stores.unregister('tab:board:in-progress');
-          } catch (err) {
-            log('unregister board:in-progress failed: %o', err);
-          }
-        }
-        if (unsub_board_closed) {
-          void unsub_board_closed().catch(() => {});
-          unsub_board_closed = null;
-          try {
-            sub_issue_stores.unregister('tab:board:closed');
-          } catch (err) {
-            log('unregister board:closed failed: %o', err);
-          }
-        }
-        if (unsub_board_blocked) {
-          void unsub_board_blocked().catch(() => {});
-          unsub_board_blocked = null;
-          try {
-            sub_issue_stores.unregister('tab:board:blocked');
-          } catch (err) {
-            log('unregister board:blocked failed: %o', err);
-          }
-        }
+        unsub_board_map.clear();
       }
     }
 

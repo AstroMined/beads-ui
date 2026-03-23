@@ -373,4 +373,465 @@ describe('views/board', () => {
     ).map((el) => el.textContent?.trim());
     expect(prog_ids).toEqual(['X-2']);
   });
+
+  test('renders 5 columns when custom column config includes in_review', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const columns = [
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
+    ];
+
+    const issueStores = createTestIssueStores();
+    // Push data to each column's store
+    issueStores.getStore('tab:board:blocked').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:blocked',
+      revision: 1,
+      issues: [
+        {
+          id: 'B-1',
+          title: 'b1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-progress').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-progress',
+      revision: 1,
+      issues: [
+        {
+          id: 'P-1',
+          title: 'p1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-review').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-review',
+      revision: 1,
+      issues: [
+        {
+          id: 'V-1',
+          title: 'v1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: [
+        {
+          id: 'C-1',
+          title: 'c1',
+          updated_at: now,
+          closed_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      undefined,
+      undefined,
+      issueStores,
+      undefined,
+      columns
+    );
+
+    await view.load();
+
+    // Should render exactly 5 board-column sections
+    const col_sections = mount.querySelectorAll('.board-column');
+    expect(col_sections.length).toBe(5);
+
+    // Verify column IDs
+    const col_ids = Array.from(col_sections).map((el) => el.id);
+    expect(col_ids).toEqual([
+      'blocked-col',
+      'ready-col',
+      'in-progress-col',
+      'in-review-col',
+      'closed-col'
+    ]);
+
+    // Verify the In Review column label
+    const review_label = mount
+      .querySelector('#in-review-col .board-column__title-text')
+      ?.textContent?.trim();
+    expect(review_label).toBe('In Review');
+
+    // Verify --board-columns CSS var is set to 5
+    const board_root = /** @type {HTMLElement} */ (
+      mount.querySelector('.board-root')
+    );
+    expect(board_root.style.getPropertyValue('--board-columns')).toBe('5');
+
+    // Verify the in-review column has its card
+    const review_ids = Array.from(
+      mount.querySelectorAll('#in-review-col .board-card .mono')
+    ).map((el) => el.textContent?.trim());
+    expect(review_ids).toEqual(['V-1']);
+  });
+
+  test('drop handler uses column drop_status value', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const columns = [
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      }
+    ];
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'T-1',
+          title: 't1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-review').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-review',
+      revision: 1,
+      issues: []
+    });
+
+    /** @type {Array<{id: string, status: string}>} */
+    const status_updates = [];
+    const transport = async (
+      /** @type {string} */ type,
+      /** @type {any} */ payload
+    ) => {
+      if (type === 'update-status') {
+        status_updates.push({ id: payload.id, status: payload.status });
+      }
+    };
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      undefined,
+      undefined,
+      issueStores,
+      transport,
+      columns
+    );
+
+    await view.load();
+
+    // Simulate dropping T-1 on the in-review column
+    const review_col = /** @type {HTMLElement} */ (
+      mount.querySelector('#in-review-col')
+    );
+    const drop_event = new Event('drop', { bubbles: true });
+    Object.defineProperty(drop_event, 'dataTransfer', {
+      value: { getData: () => 'T-1' }
+    });
+    Object.defineProperty(drop_event, 'preventDefault', { value: () => {} });
+    review_col.dispatchEvent(drop_event);
+
+    // Wait for async transport call
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(status_updates).toEqual([{ id: 'T-1', status: 'in_progress' }]);
+  });
+
+  test('closed filter only applies to columns with closed-issues subscription', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const yesterday = now - 2 * 24 * 60 * 60 * 1000;
+    const columns = [
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-review',
+        label: 'In Review',
+        subscription: 'status-issues',
+        params: { status: 'in_review' },
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
+    ];
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        {
+          id: 'R-1',
+          title: 'r1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        },
+        {
+          id: 'R-2',
+          title: 'r2',
+          created_at: now - 1,
+          updated_at: now - 1,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:in-review').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:in-review',
+      revision: 1,
+      issues: [
+        {
+          id: 'V-1',
+          title: 'v1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:closed').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:closed',
+      revision: 1,
+      issues: [
+        {
+          id: 'C-1',
+          title: 'today',
+          updated_at: now,
+          closed_at: now,
+          issue_type: 'task'
+        },
+        {
+          id: 'C-2',
+          title: 'old',
+          updated_at: yesterday,
+          closed_at: yesterday,
+          issue_type: 'task'
+        }
+      ]
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      undefined,
+      undefined,
+      issueStores,
+      undefined,
+      columns
+    );
+
+    await view.load();
+
+    // Closed filter (default 'today') should filter out yesterday's closed item
+    const closed_ids = Array.from(
+      mount.querySelectorAll('#closed-col .board-card .mono')
+    ).map((el) => el.textContent?.trim());
+    expect(closed_ids).toEqual(['C-1']);
+
+    // Non-closed columns should NOT be filtered
+    const ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card .mono')
+    ).map((el) => el.textContent?.trim());
+    expect(ready_ids).toHaveLength(2);
+
+    const review_ids = Array.from(
+      mount.querySelectorAll('#in-review-col .board-card .mono')
+    ).map((el) => el.textContent?.trim());
+    expect(review_ids).toEqual(['V-1']);
+
+    // Only closed column should have the filter dropdown
+    const closed_filter = mount.querySelector('#closed-col #closed-filter');
+    expect(closed_filter).not.toBeNull();
+    const review_filter = mount.querySelector('#in-review-col #closed-filter');
+    expect(review_filter).toBeNull();
+  });
+
+  test('keyboard navigation works across dynamic column count', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const columns = [
+      {
+        id: 'col-a',
+        label: 'A',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'col-b',
+        label: 'B',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'col-c',
+        label: 'C',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      }
+    ];
+
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:col-a').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:col-a',
+      revision: 1,
+      issues: [
+        {
+          id: 'A-1',
+          title: 'a1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+    issueStores.getStore('tab:board:col-b').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:col-b',
+      revision: 1,
+      issues: [] // Empty column
+    });
+    issueStores.getStore('tab:board:col-c').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:col-c',
+      revision: 1,
+      issues: [
+        {
+          id: 'C-1',
+          title: 'c1',
+          created_at: now,
+          updated_at: now,
+          issue_type: 'task'
+        }
+      ]
+    });
+
+    const view = createBoardView(
+      mount,
+      null,
+      () => {},
+      undefined,
+      undefined,
+      issueStores,
+      undefined,
+      columns
+    );
+
+    await view.load();
+
+    // First card in col-a should have tabindex=0
+    const a_card = /** @type {HTMLElement} */ (
+      mount.querySelector('#col-a-col .board-card')
+    );
+    expect(a_card.tabIndex).toBe(0);
+
+    // ArrowRight from col-a should skip empty col-b and land on col-c
+    a_card.focus();
+    const right_event = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true
+    });
+    a_card.dispatchEvent(right_event);
+
+    const c_card = /** @type {HTMLElement} */ (
+      mount.querySelector('#col-c-col .board-card')
+    );
+    expect(c_card.tabIndex).toBe(0);
+    expect(a_card.tabIndex).toBe(-1);
+  });
 });

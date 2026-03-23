@@ -21,24 +21,21 @@ import { createTypeBadge } from '../utils/type-badge.js';
  */
 
 /**
- * Map column IDs to their corresponding status values.
- *
- * @type {Record<string, 'open'|'in_progress'|'closed'>}
+ * @typedef {Object} ColumnDef
+ * @property {string} id - Unique column identifier.
+ * @property {string} label - Display label for the column header.
+ * @property {string} subscription - Subscription type for data.
+ * @property {Record<string, unknown>} [params] - Optional subscription parameters.
+ * @property {string} drop_status - Status to set when a card is dropped.
  */
-const COLUMN_STATUS_MAP = {
-  'blocked-col': 'open',
-  'ready-col': 'open',
-  'in-progress-col': 'in_progress',
-  'closed-col': 'closed'
-};
 
 /**
- * Create the Board view with Blocked, Ready, In progress, Closed.
+ * Create the Board view with dynamic columns from settings.
  * Push-only: derives items from per-subscription stores.
  *
  * Sorting rules:
- * - Ready/Blocked/In progress: priority asc, then created_at asc.
- * - Closed: closed_at desc.
+ * - Closed columns: closed_at desc.
+ * - All others: priority asc, then created_at asc.
  *
  * @param {HTMLElement} mount_element
  * @param {unknown} _data - Unused (legacy param retained for call-compat)
@@ -47,6 +44,7 @@ const COLUMN_STATUS_MAP = {
  * @param {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
  * @param {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
  * @param {(type: string, payload: unknown) => Promise<unknown>} [transport] - Transport function for sending updates
+ * @param {ColumnDef[]} [columns] - Column definitions from settings
  * @returns {{ load: () => Promise<void>, clear: () => void }}
  */
 export function createBoardView(
@@ -56,19 +54,52 @@ export function createBoardView(
   store,
   subscriptions = undefined,
   issueStores = undefined,
-  transport = undefined
+  transport = undefined,
+  columns = undefined
 ) {
   const log = debug('views:board');
-  /** @type {IssueLite[]} */
-  let list_ready = [];
-  /** @type {IssueLite[]} */
-  let list_blocked = [];
-  /** @type {IssueLite[]} */
-  let list_in_progress = [];
-  /** @type {IssueLite[]} */
-  let list_closed = [];
-  /** @type {IssueLite[]} */
-  let list_closed_raw = [];
+
+  /** @type {ColumnDef[]} */
+  const col_defs =
+    Array.isArray(columns) && columns.length > 0
+      ? columns
+      : [
+          {
+            id: 'blocked',
+            label: 'Blocked',
+            subscription: 'blocked-issues',
+            drop_status: 'open'
+          },
+          {
+            id: 'ready',
+            label: 'Ready',
+            subscription: 'ready-issues',
+            drop_status: 'open'
+          },
+          {
+            id: 'in-progress',
+            label: 'In Progress',
+            subscription: 'in-progress-issues',
+            drop_status: 'in_progress'
+          },
+          {
+            id: 'closed',
+            label: 'Closed',
+            subscription: 'closed-issues',
+            drop_status: 'closed'
+          }
+        ];
+
+  /** @type {Map<string, IssueLite[]>} */
+  const column_data = new Map();
+  /** @type {Map<string, IssueLite[]>} */
+  const column_raw = new Map();
+  for (const col of col_defs) {
+    column_data.set(col.id, []);
+    if (col.subscription === 'closed-issues') {
+      column_raw.set(col.id, []);
+    }
+  }
   // Centralized selection helpers
   const selectors = issueStores ? createListSelectors(issueStores) : null;
 
@@ -95,38 +126,40 @@ export function createBoardView(
 
   function template() {
     return html`
-      <div class="panel__body board-root">
-        ${columnTemplate('Blocked', 'blocked-col', list_blocked)}
-        ${columnTemplate('Ready', 'ready-col', list_ready)}
-        ${columnTemplate('In Progress', 'in-progress-col', list_in_progress)}
-        ${columnTemplate('Closed', 'closed-col', list_closed)}
+      <div
+        class="panel__body board-root"
+        style="--board-columns: ${col_defs.length}"
+      >
+        ${col_defs.map((col) =>
+          columnTemplate(col, column_data.get(col.id) || [])
+        )}
       </div>
     `;
   }
 
   /**
-   * @param {string} title
-   * @param {string} id
+   * @param {ColumnDef} col
    * @param {IssueLite[]} items
    */
-  function columnTemplate(title, id, items) {
+  function columnTemplate(col, items) {
     const item_count = Array.isArray(items) ? items.length : 0;
     const count_label = item_count === 1 ? '1 issue' : `${item_count} issues`;
+    const col_id = col.id + '-col';
     return html`
-      <section class="board-column" id=${id}>
+      <section class="board-column" id=${col_id}>
         <header
           class="board-column__header"
-          id=${id + '-header'}
+          id=${col_id + '-header'}
           role="heading"
           aria-level="2"
         >
           <div class="board-column__title">
-            <span class="board-column__title-text">${title}</span>
+            <span class="board-column__title-text">${col.label}</span>
             <span class="badge board-column__count" aria-label=${count_label}>
               ${item_count}
             </span>
           </div>
-          ${id === 'closed-col'
+          ${col.subscription === 'closed-issues'
             ? html`<label class="board-closed-filter">
                 <span class="visually-hidden">Filter closed issues</span>
                 <select
@@ -153,7 +186,7 @@ export function createBoardView(
         <div
           class="board-column__body"
           role="list"
-          aria-labelledby=${id + '-header'}
+          aria-labelledby=${col_id + '-header'}
         >
           ${items.map((it) => cardTemplate(it))}
         </div>
@@ -475,12 +508,15 @@ export function createBoardView(
       return;
     }
 
-    const col_id = col.id;
-    const new_status = COLUMN_STATUS_MAP[col_id];
-    if (!new_status) {
-      log('drop on unknown column: %s', col_id);
+    const col_el_id = col.id;
+    const col_def = col_defs.find((c) => c.id + '-col' === col_el_id);
+    if (!col_def || !col_def.drop_status) {
+      log('drop on unknown column: %s', col_el_id);
       return;
     }
+    const new_status = /** @type {'open'|'in_progress'|'closed'} */ (
+      col_def.drop_status
+    );
 
     const issue_id = ev.dataTransfer?.getData('text/plain');
     if (!issue_id) {
@@ -488,7 +524,7 @@ export function createBoardView(
       return;
     }
 
-    log('drop %s on %s → %s', issue_id, col_id, new_status);
+    log('drop %s on %s → %s', issue_id, col_el_id, new_status);
     void updateIssueStatus(issue_id, new_status);
   });
 
@@ -509,12 +545,10 @@ export function createBoardView(
   // Sort helpers centralized in app/data/sort.js
 
   /**
-   * Recompute closed list from raw using the current filter and sort.
+   * Recompute filtered list for all closed-type columns from their raw data.
    */
   function applyClosedFilter() {
     log('applyClosedFilter %s', closed_filter_mode);
-    /** @type {IssueLite[]} */
-    let items = Array.isArray(list_closed_raw) ? [...list_closed_raw] : [];
     const now = new Date();
     let since_ts = 0;
     if (closed_filter_mode === 'today') {
@@ -533,17 +567,25 @@ export function createBoardView(
     } else if (closed_filter_mode === '7') {
       since_ts = now.getTime() - 7 * 24 * 60 * 60 * 1000;
     }
-    items = items.filter((it) => {
-      const s = Number.isFinite(it.closed_at)
-        ? /** @type {number} */ (it.closed_at)
-        : NaN;
-      if (!Number.isFinite(s)) {
-        return false;
+    for (const col of col_defs) {
+      if (col.subscription !== 'closed-issues') {
+        continue;
       }
-      return s >= since_ts;
-    });
-    items.sort(cmpClosedDesc);
-    list_closed = items;
+      const raw = column_raw.get(col.id) || [];
+      /** @type {IssueLite[]} */
+      let items = [...raw];
+      items = items.filter((it) => {
+        const s = Number.isFinite(it.closed_at)
+          ? /** @type {number} */ (it.closed_at)
+          : NaN;
+        if (!Number.isFinite(s)) {
+          return false;
+        }
+        return s >= since_ts;
+      });
+      items.sort(cmpClosedDesc);
+      column_data.set(col.id, items);
+    }
   }
 
   /**
@@ -570,45 +612,78 @@ export function createBoardView(
   }
 
   /**
+   * Map subscription type to selectBoardColumn mode.
+   *
+   * @param {string} subscription
+   * @returns {'ready'|'blocked'|'in_progress'|'closed'}
+   */
+  function subscriptionToMode(subscription) {
+    switch (subscription) {
+      case 'ready-issues':
+        return 'ready';
+      case 'blocked-issues':
+        return 'blocked';
+      case 'in-progress-issues':
+        return 'in_progress';
+      case 'closed-issues':
+        return 'closed';
+      default:
+        return 'ready';
+    }
+  }
+
+  /**
    * Compose lists from subscriptions + issues store and render.
    */
   function refreshFromStores() {
     try {
       if (selectors) {
-        const in_progress = selectors.selectBoardColumn(
-          'tab:board:in-progress',
-          'in_progress'
-        );
-        const blocked = selectors.selectBoardColumn(
-          'tab:board:blocked',
-          'blocked'
-        );
-        const ready_raw = selectors.selectBoardColumn(
-          'tab:board:ready',
-          'ready'
-        );
-        const closed = selectors.selectBoardColumn(
-          'tab:board:closed',
-          'closed'
-        );
-
-        // Ready excludes items that are in progress
+        // Collect in-progress IDs for ready-excludes-in-progress logic
         /** @type {Set<string>} */
-        const in_prog_ids = new Set(in_progress.map((i) => i.id));
-        const ready = ready_raw.filter((i) => !in_prog_ids.has(i.id));
+        const in_prog_ids = new Set();
+        for (const col of col_defs) {
+          if (col.subscription === 'in-progress-issues') {
+            const items = selectors.selectBoardColumn(
+              'tab:board:' + col.id,
+              'in_progress'
+            );
+            for (const it of items) {
+              in_prog_ids.add(it.id);
+            }
+            column_data.set(col.id, items);
+          }
+        }
 
-        list_ready = ready;
-        list_blocked = blocked;
-        list_in_progress = in_progress;
-        list_closed_raw = closed;
+        // Populate remaining columns
+        for (const col of col_defs) {
+          if (col.subscription === 'in-progress-issues') {
+            continue; // already handled above
+          }
+          const mode = subscriptionToMode(col.subscription);
+          const items = selectors.selectBoardColumn(
+            'tab:board:' + col.id,
+            mode
+          );
+
+          if (col.subscription === 'ready-issues') {
+            // Ready excludes items that are in progress
+            column_data.set(
+              col.id,
+              items.filter((i) => !in_prog_ids.has(i.id))
+            );
+          } else if (col.subscription === 'closed-issues') {
+            column_raw.set(col.id, items);
+          } else {
+            column_data.set(col.id, items);
+          }
+        }
       }
       applyClosedFilter();
       doRender();
     } catch {
-      list_ready = [];
-      list_blocked = [];
-      list_in_progress = [];
-      list_closed = [];
+      for (const col of col_defs) {
+        column_data.set(col.id, []);
+      }
       doRender();
     }
   }
@@ -652,11 +727,10 @@ export function createBoardView(
             return 0;
           }
         };
-        const total_items =
-          cnt('tab:board:ready') +
-          cnt('tab:board:blocked') +
-          cnt('tab:board:in-progress') +
-          cnt('tab:board:closed');
+        let total_items = 0;
+        for (const col of col_defs) {
+          total_items += cnt('tab:board:' + col.id);
+        }
         const data = /** @type {any} */ (_data);
         const can_fetch =
           data &&
@@ -674,35 +748,45 @@ export function createBoardView(
               data.getInProgress().catch(() => []),
               data.getClosed().catch(() => [])
             ]);
-          // Normalize and map unknowns to IssueLite shape
-          /** @type {IssueLite[]} */
-          let ready = Array.isArray(ready_raw) ? ready_raw.map((it) => it) : [];
-          /** @type {IssueLite[]} */
-          const blocked = Array.isArray(blocked_raw)
-            ? blocked_raw.map((it) => it)
-            : [];
-          /** @type {IssueLite[]} */
-          const in_prog = Array.isArray(in_prog_raw)
-            ? in_prog_raw.map((it) => it)
-            : [];
-          /** @type {IssueLite[]} */
-          const closed = Array.isArray(closed_raw)
-            ? closed_raw.map((it) => it)
-            : [];
 
-          // Remove items from Ready that are already In Progress
+          /** @type {Map<string, IssueLite[]>} */
+          const fallback_map = new Map([
+            [
+              'ready-issues',
+              Array.isArray(ready_raw) ? ready_raw.map((it) => it) : []
+            ],
+            [
+              'blocked-issues',
+              Array.isArray(blocked_raw) ? blocked_raw.map((it) => it) : []
+            ],
+            [
+              'in-progress-issues',
+              Array.isArray(in_prog_raw) ? in_prog_raw.map((it) => it) : []
+            ],
+            [
+              'closed-issues',
+              Array.isArray(closed_raw) ? closed_raw.map((it) => it) : []
+            ]
+          ]);
+
+          // Collect in-progress IDs for ready filtering
           /** @type {Set<string>} */
-          const in_progress_ids = new Set(in_prog.map((i) => i.id));
-          ready = ready.filter((i) => !in_progress_ids.has(i.id));
+          const in_progress_ids = new Set(
+            (fallback_map.get('in-progress-issues') || []).map((i) => i.id)
+          );
 
-          // Sort as per column rules
-          ready.sort(cmpPriorityThenCreated);
-          blocked.sort(cmpPriorityThenCreated);
-          in_prog.sort(cmpPriorityThenCreated);
-          list_ready = ready;
-          list_blocked = blocked;
-          list_in_progress = in_prog;
-          list_closed_raw = closed;
+          for (const col of col_defs) {
+            let items = fallback_map.get(col.subscription) || [];
+            if (col.subscription === 'ready-issues') {
+              items = items.filter((i) => !in_progress_ids.has(i.id));
+            }
+            if (col.subscription === 'closed-issues') {
+              column_raw.set(col.id, items);
+            } else {
+              items.sort(cmpPriorityThenCreated);
+              column_data.set(col.id, items);
+            }
+          }
           applyClosedFilter();
           doRender();
         }
@@ -712,10 +796,12 @@ export function createBoardView(
     },
     clear() {
       mount_element.replaceChildren();
-      list_ready = [];
-      list_blocked = [];
-      list_in_progress = [];
-      list_closed = [];
+      for (const col of col_defs) {
+        column_data.set(col.id, []);
+        if (col.subscription === 'closed-issues') {
+          column_raw.set(col.id, []);
+        }
+      }
     }
   };
 }

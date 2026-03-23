@@ -1,6 +1,7 @@
 # beads-ui Enhancements PRD
 
-**Status:** Draft **Date:** 2026-03-22 (Phase 2 completed 2026-03-22)
+**Status:** Draft **Date:** 2026-03-22 (Phase 0 completed 2026-03-22, Phase 1
+completed 2026-03-23, Phase 2 completed 2026-03-22)
 **Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
@@ -187,29 +188,29 @@ implementation is grounded entirely in codebase analysis and user requirements.
 **Depends on:** Phase 0 (settings module, get-settings WebSocket message,
 board.columns schema)
 
-- [ ] Generic `status-issues` subscription type in `server/list-adapters.js`
+- [x] Generic `status-issues` subscription type in `server/list-adapters.js`
       that accepts a `status` parameter and maps to
       `bd list --json --tree=false --status <param>`
-- [ ] Validator update in `server/validators.js` adding `status-issues` to
+- [x] Validator update in `server/validators.js` adding `status-issues` to
       `SUBSCRIPTION_TYPES` with param validation requiring non-empty
       `params.status` string
-- [ ] Board view refactor in `app/views/board.js`: replace hardcoded
+- [x] Board view refactor in `app/views/board.js`: replace hardcoded
       `COLUMN_STATUS_MAP` and four `list_*` variables with dynamic column
       generation from settings, using a `Map<string, IssueLite[]>` keyed by
       column ID
-- [ ] Dynamic `ensureTabSubscriptions()` in `app/main.js`: iterate over column
+- [x] Dynamic `ensureTabSubscriptions()` in `app/main.js`: iterate over column
       definitions from settings to create subscriptions instead of hardcoded
       four, with full teardown and rebuild on `settings-changed` events
       (hot-reload)
-- [ ] Dynamic CSS grid in `app/styles.css`: change `.board-root` from
+- [x] Dynamic CSS grid in `app/styles.css`: change `.board-root` from
       `repeat(4, 1fr)` to `repeat(var(--board-columns, 4), 1fr)` with
       `overflow-x: auto` for horizontal scrolling when many columns
-- [ ] Drag-drop status mapping using `drop_status` field from column definition,
+- [x] Drag-drop status mapping using `drop_status` field from column definition,
       preserving existing `update-status` WebSocket message handler without
       modification
-- [ ] Preserve existing closed column date filter for columns with
+- [x] Preserve existing closed column date filter for columns with
       `subscription: 'closed-issues'`
-- [ ] Unit tests for `status-issues` adapter, dynamic column rendering, and
+- [x] Unit tests for `status-issues` adapter, dynamic column rendering, and
       drag-drop with custom drop_status
 
 ### Phase 2: Project Auto-Discovery
@@ -386,15 +387,15 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 
 ### Phase 1
 
-- [ ] `npm test` passes with all updated board and adapter tests
-- [ ] Board renders default 4 columns when no custom config exists
-- [ ] Board renders 5+ columns when config includes custom columns (e.g.,
+- [x] `npm test` passes with all updated board and adapter tests
+- [x] Board renders default 4 columns when no custom config exists
+- [x] Board renders 5+ columns when config includes custom columns (e.g.,
       `in_review`)
-- [ ] Dragging a card to a custom column updates its status to the column's
+- [x] Dragging a card to a custom column updates its status to the column's
       `drop_status` value
-- [ ] Board is horizontally scrollable when column count exceeds viewport width
-- [ ] Closed column date filter still works on closed-type columns
-- [ ] Keyboard navigation (arrow keys, Enter/Space) works across dynamic columns
+- [x] Board is horizontally scrollable when column count exceeds viewport width
+- [x] Closed column date filter still works on closed-type columns
+- [x] Keyboard navigation (arrow keys, Enter/Space) works across dynamic columns
 
 ### Phase 2
 
@@ -458,6 +459,61 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
   `broadcast()` helper for server push
 - **Test pattern**: Module-level `vi.mock('node:fs')` with `freshImport()` for
   state reset between tests, `vi.useFakeTimers()` for debounce testing
+
+## Phase 1 Outcomes
+
+### What Was Completed
+
+- Generic `status-issues` subscription type in `server/list-adapters.js` with
+  `params.status` parameter mapping to
+  `bd list --json --tree=false --status <param>`
+- Validator update in `server/validators.js` adding `status-issues` to
+  `SUBSCRIPTION_TYPES` with non-empty `params.status` string validation
+- Board view refactor in `app/views/board.js`: replaced hardcoded
+  `COLUMN_STATUS_MAP` and four `list_*` variables with dynamic `ColumnDef[]`
+  array, `column_data` Map and `column_raw` Map keyed by column ID, and
+  `col_defs.map()` rendering in `template()`
+- Dynamic `ensureTabSubscriptions()` in `app/main.js`: replaced 4 hardcoded
+  `unsub_board_*` variables and ~100 lines of subscription blocks with
+  `unsub_board_map` Map and a ~25 line loop over `board_columns` array
+- Settings hot-reload in `app/main.js`: `settings-changed` event handler with
+  full teardown (unsubscribe, unregister stores) and rebuild (new board_view,
+  re-subscribe, re-load)
+- Dynamic CSS grid in `app/styles.css`: `repeat(var(--board-columns, 4), 1fr)`
+  with `overflow-x: auto` for horizontal scrolling
+- Drag-drop using `col_defs.find()` with `drop_status` field from column
+  definition; existing `update-status` WebSocket handler unchanged
+- Closed column date filter preserved for columns with
+  `subscription: 'closed-issues'` via dynamic `column_raw` Map and
+  `applyClosedFilter()` iterating `col_defs`
+- 12 unit tests: 5 validator tests (`server/validators.test.js`), 3 list-adapter
+  tests (`server/list-adapters.test.js`), 4 board tests
+  (`app/views/board.test.js`) covering 5-column rendering, drop_status dispatch,
+  closed filter scoping, and keyboard navigation across dynamic columns
+
+### Deviations from Plan
+
+- Tasks .2.4 (rendering), .2.8 (drag-drop), and .2.9 (closed filter) were
+  naturally coupled with the board data model refactor in .2.3 and were
+  implemented together in a single commit rather than as separate changes. This
+  was the correct decomposition since these concerns were tightly interleaved in
+  the original `board.js` code.
+
+### Key Patterns Established
+
+- **ColumnDef type**: `{id, label, subscription, params?, drop_status}` drives
+  all board behavior from column rendering to subscription setup to drag-drop
+  status mapping
+- **Dynamic Maps**: `column_data` and `column_raw` Maps keyed by column ID
+  replace all hardcoded list variables
+- **Ready-excludes-in-progress**: When refreshing from stores, in-progress
+  column IDs are collected first, then used to filter ready columns. This
+  pattern is preserved in the dynamic model.
+- **CSS variable binding**: `--board-columns` CSS var set via inline `style`
+  attribute on `.board-root` for grid column count
+- **Settings bootstrap**: `get-settings` fetch in `app/main.js` initializes
+  `board_columns` before first subscription setup; `settings-changed` event
+  triggers full teardown/rebuild cycle
 
 ## Phase 2 Outcomes
 
