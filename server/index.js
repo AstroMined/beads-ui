@@ -45,11 +45,15 @@ if (workspace_database.source !== 'home-default' && workspace_database.exists) {
   });
 }
 
-// Auto-discover workspaces from configured scan roots
-const scan_roots = settings.discovery.scan_roots || [];
-if (scan_roots.length > 0) {
-  const scan_depth = settings.discovery.scan_depth ?? 2;
-  const discovered = scanForWorkspaces(scan_roots, scan_depth);
+/**
+ * Scan roots for .beads/ projects and register any that are not already known.
+ *
+ * @param {string[]} roots - Directories to scan.
+ * @param {number} depth - Maximum recursion depth.
+ * @returns {number} Number of newly registered workspaces.
+ */
+function discoverAndRegister(roots, depth) {
+  const discovered = scanForWorkspaces(roots, depth);
   const existing = getAvailableWorkspaces();
   const existing_paths = new Set(existing.map((w) => w.path));
   let registered = 0;
@@ -62,9 +66,17 @@ if (scan_roots.length > 0) {
   log(
     'discovered %d workspaces from %d roots, registered %d new',
     discovered.length,
-    scan_roots.length,
+    roots.length,
     registered
   );
+  return registered;
+}
+
+// Auto-discover workspaces from configured scan roots
+const scan_roots = settings.discovery.scan_roots || [];
+if (scan_roots.length > 0) {
+  const scan_depth = settings.discovery.scan_depth ?? 2;
+  discoverAndRegister(scan_roots, scan_depth);
 } else {
   log('no discovery scan roots configured, skipping workspace scan');
 }
@@ -107,21 +119,7 @@ watchSettings((new_settings) => {
     prev_scan_depth = new_depth;
     if (new_roots.length > 0) {
       log('re-scanning workspaces: roots=%o depth=%d', new_roots, new_depth);
-      const discovered = scanForWorkspaces(new_roots, new_depth);
-      const existing = getAvailableWorkspaces();
-      const existing_paths = new Set(existing.map((w) => w.path));
-      let re_registered = 0;
-      for (const ws of discovered) {
-        if (!existing_paths.has(ws.workspace_path)) {
-          registerWorkspace({ path: ws.workspace_path, database: '' });
-          re_registered++;
-        }
-      }
-      log(
-        're-scan found %d workspaces, registered %d new',
-        discovered.length,
-        re_registered
-      );
+      discoverAndRegister(new_roots, new_depth);
     }
   }
 });
