@@ -110,44 +110,103 @@ export function bootstrap(root_element) {
     // Per-subscription stores (source of truth)
     const sub_issue_stores = createSubscriptionIssueStores();
     // Route per-subscription push envelopes to the owning store
-    client.on('snapshot', (payload) => {
+    /**
+     * Handle a push event by routing it to the matching subscription store.
+     *
+     * @param {string} event_name
+     * @param {unknown} payload
+     */
+    function handlePushEvent(event_name, payload) {
       const p = /** @type {any} */ (payload);
       const id = p && typeof p.id === 'string' ? p.id : '';
-      const store = id ? sub_issue_stores.getStore(id) : null;
-      if (store && p && p.type === 'snapshot') {
+      const s = id ? sub_issue_stores.getStore(id) : null;
+      if (s && p && p.type === event_name) {
         try {
-          store.applyPush(p);
-        } catch {
-          // ignore
+          s.applyPush(p);
+        } catch (err) {
+          log('push %s error for subscription %s: %o', event_name, id, err);
         }
       }
-    });
-    client.on('upsert', (payload) => {
-      const p = /** @type {any} */ (payload);
-      const id = p && typeof p.id === 'string' ? p.id : '';
-      const store = id ? sub_issue_stores.getStore(id) : null;
-      if (store && p && p.type === 'upsert') {
-        try {
-          store.applyPush(p);
-        } catch {
-          // ignore
-        }
-      }
-    });
-    client.on('delete', (payload) => {
-      const p = /** @type {any} */ (payload);
-      const id = p && typeof p.id === 'string' ? p.id : '';
-      const store = id ? sub_issue_stores.getStore(id) : null;
-      if (store && p && p.type === 'delete') {
-        try {
-          store.applyPush(p);
-        } catch {
-          // ignore
-        }
-      }
-    });
+    }
+    client.on('snapshot', (payload) => handlePushEvent('snapshot', payload));
+    client.on('upsert', (payload) => handlePushEvent('upsert', payload));
+    client.on('delete', (payload) => handlePushEvent('delete', payload));
     // Derived list selectors: render from per-subscription snapshots
     const listSelectors = createListSelectors(sub_issue_stores);
+
+    // Board column definitions (dynamic from settings)
+    /** @type {Map<string, () => Promise<void>>} */
+    const unsub_board_map = new Map();
+
+    /** @type {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>} */
+    const DEFAULT_COLUMNS = [
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        subscription: 'blocked-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'ready',
+        label: 'Ready',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        subscription: 'in-progress-issues',
+        drop_status: 'in_progress'
+      },
+      {
+        id: 'closed',
+        label: 'Closed',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
+    ];
+
+    /**
+     * Validate an array of column definitions from the server.
+     * Returns only valid entries. If none are valid, returns DEFAULT_COLUMNS.
+     *
+     * @param {unknown[]} cols
+     * @returns {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>}
+     */
+    function validateColumnDefs(cols) {
+      const valid = cols.filter((col) => {
+        if (!col || typeof col !== 'object' || Array.isArray(col)) {
+          return false;
+        }
+        const c = /** @type {Record<string, unknown>} */ (col);
+        return (
+          typeof c.id === 'string' &&
+          c.id.length > 0 &&
+          typeof c.label === 'string' &&
+          c.label.length > 0 &&
+          typeof c.subscription === 'string' &&
+          c.subscription.length > 0 &&
+          typeof c.drop_status === 'string' &&
+          c.drop_status.length > 0
+        );
+      });
+      if (valid.length === 0) {
+        log('all column definitions invalid, falling back to defaults');
+        return DEFAULT_COLUMNS;
+      }
+      if (valid.length < cols.length) {
+        log(
+          'filtered %d invalid column definitions, keeping %d valid',
+          cols.length - valid.length,
+          valid.length
+        );
+      }
+      return /** @type {Array<{id: string, label: string, subscription: string, params?: Record<string, string | number | boolean>, drop_status: string}>} */ (
+        valid
+      );
+    }
+
+    let board_columns = DEFAULT_COLUMNS;
 
     // --- Workspace management ---
     /**
@@ -156,40 +215,28 @@ export function bootstrap(root_element) {
      */
     async function clearAndResubscribe() {
       log('clearing all subscriptions for workspace switch');
-      // Unsubscribe from server-side subscriptions first
+      // Collect and await all unsubscribe promises before teardown
+      /** @type {Promise<void>[]} */
+      const unsub_promises = [];
       if (unsub_issues_tab) {
-        void unsub_issues_tab().catch(() => {});
+        unsub_promises.push(unsub_issues_tab().catch(() => {}));
         unsub_issues_tab = null;
       }
       if (unsub_epics_tab) {
-        void unsub_epics_tab().catch(() => {});
+        unsub_promises.push(unsub_epics_tab().catch(() => {}));
         unsub_epics_tab = null;
       }
-      if (unsub_board_ready) {
-        void unsub_board_ready().catch(() => {});
-        unsub_board_ready = null;
+      for (const [, unsub] of unsub_board_map) {
+        unsub_promises.push(unsub().catch(() => {}));
       }
-      if (unsub_board_in_progress) {
-        void unsub_board_in_progress().catch(() => {});
-        unsub_board_in_progress = null;
-      }
-      if (unsub_board_closed) {
-        void unsub_board_closed().catch(() => {});
-        unsub_board_closed = null;
-      }
-      if (unsub_board_blocked) {
-        void unsub_board_blocked().catch(() => {});
-        unsub_board_blocked = null;
-      }
+      unsub_board_map.clear();
+      await Promise.all(unsub_promises);
       // Clear all subscription stores
-      const storeIds = [
-        'tab:issues',
-        'tab:epics',
-        'tab:board:ready',
-        'tab:board:in-progress',
-        'tab:board:closed',
-        'tab:board:blocked'
-      ];
+      /** @type {string[]} */
+      const storeIds = ['tab:issues', 'tab:epics'];
+      for (const col of board_columns) {
+        storeIds.push('tab:board:' + col.id);
+      }
       for (const id of storeIds) {
         try {
           sub_issue_stores.unregister(id);
@@ -397,8 +444,11 @@ export function bootstrap(root_element) {
       log('view parse error: %o', err);
     }
     // Load board preferences
-    /** @type {{ closed_filter: 'today'|'3'|'7' }} */
-    let persistedBoard = { closed_filter: 'today' };
+    /** @type {{ closed_filter: 'today'|'3'|'7', board_filters: { parent: string|null, assignee: string|null, type: string|null } }} */
+    let persistedBoard = {
+      closed_filter: 'today',
+      board_filters: { parent: null, assignee: null, type: null }
+    };
     try {
       const raw_board = window.localStorage.getItem('beads-ui.board');
       if (raw_board) {
@@ -412,6 +462,26 @@ export function bootstrap(root_element) {
       }
     } catch (err) {
       log('board prefs parse error: %o', err);
+    }
+    // Load persisted board filters from separate localStorage key
+    try {
+      const raw_filters = window.localStorage.getItem('beads-ui.board-filters');
+      if (raw_filters) {
+        const obj = JSON.parse(raw_filters);
+        if (obj && typeof obj === 'object') {
+          persistedBoard.board_filters = {
+            parent:
+              typeof obj.parent === 'string' && obj.parent ? obj.parent : null,
+            assignee:
+              typeof obj.assignee === 'string' && obj.assignee
+                ? obj.assignee
+                : null,
+            type: typeof obj.type === 'string' && obj.type ? obj.type : null
+          };
+        }
+      }
+    } catch (err) {
+      log('board filters parse error: %o', err);
     }
 
     const store = createStore({
@@ -432,6 +502,120 @@ export function bootstrap(root_element) {
         return [];
       }
     };
+
+    /**
+     * Tear down all active board subscriptions, awaiting server-side
+     * unsubscribe completion before clearing local stores.
+     *
+     * @param {string} context - Caller label for log messages
+     * @returns {Promise<void>}
+     */
+    async function teardownBoardSubscriptions(context) {
+      /** @type {Promise<void>[]} */
+      const unsub_promises = [];
+      for (const [, unsub] of unsub_board_map) {
+        unsub_promises.push(unsub().catch(() => {}));
+      }
+      await Promise.all(unsub_promises);
+      for (const [client_id] of unsub_board_map) {
+        try {
+          sub_issue_stores.unregister(client_id);
+        } catch (err) {
+          log('unregister %s on %s failed: %o', client_id, context, err);
+        }
+      }
+      unsub_board_map.clear();
+    }
+
+    // Settings-changed: update board columns when config changes
+    client.on('settings-changed', async (payload) => {
+      log('settings-changed event: %o', payload);
+      const p = /** @type {any} */ (payload);
+      if (
+        p &&
+        p.settings &&
+        p.settings.board &&
+        Array.isArray(p.settings.board.columns)
+      ) {
+        const new_cols = validateColumnDefs(p.settings.board.columns);
+        const old_key = JSON.stringify(board_columns);
+        const new_key = JSON.stringify(new_cols);
+        if (old_key !== new_key) {
+          log('board columns changed, rebuilding');
+          await teardownBoardSubscriptions('settings change');
+          // Update column definitions
+          board_columns = new_cols;
+          // Re-create board view with new columns
+          board_view = createBoardView({
+            mount_element: board_root,
+            data,
+            gotoIssue: (id) => router.gotoIssue(id),
+            store,
+            subscriptions,
+            issueStores: sub_issue_stores,
+            transport,
+            columns: board_columns
+          });
+          // If board is active, re-subscribe and load
+          const s = store.getState();
+          if (s && s.view === 'board') {
+            ensureTabSubscriptions(s);
+            void board_view.load();
+          }
+        }
+      }
+    });
+
+    // Fetch initial settings from server
+    void transport('get-settings', {})
+      .then(async (res) => {
+        const r = /** @type {any} */ (res);
+        if (
+          r &&
+          r.settings &&
+          r.settings.board &&
+          Array.isArray(r.settings.board.columns)
+        ) {
+          const new_cols = validateColumnDefs(r.settings.board.columns);
+          const old_key = JSON.stringify(board_columns);
+          const new_key = JSON.stringify(new_cols);
+          if (old_key !== new_key) {
+            log(
+              'loaded board columns from settings: %d columns (changed from defaults)',
+              new_cols.length
+            );
+            await teardownBoardSubscriptions('initial settings load');
+            // Update column definitions
+            board_columns = new_cols;
+            // Re-create board view with new columns
+            board_view = createBoardView({
+              mount_element: board_root,
+              data,
+              gotoIssue: (id) => router.gotoIssue(id),
+              store,
+              subscriptions,
+              issueStores: sub_issue_stores,
+              transport,
+              columns: board_columns
+            });
+            // If board is active, re-subscribe and load with server columns
+            const s = store.getState();
+            if (s && s.view === 'board') {
+              ensureTabSubscriptions(s);
+              void board_view.load();
+            }
+          } else {
+            log(
+              'loaded board columns from settings: %d columns (match defaults)',
+              new_cols.length
+            );
+          }
+        }
+      })
+      .catch((err) => {
+        log('get-settings failed, using defaults: %o', err);
+      });
+
     // Top navigation (optional mount)
     if (nav_mount) {
       createTopNav(nav_mount, store, router);
@@ -495,21 +679,27 @@ export function bootstrap(root_element) {
       subscriptions,
       sub_issue_stores
     );
-    // Persist filter changes to localStorage
+    // Persist filter and board preferences to localStorage
     store.subscribe((s) => {
-      const data = {
+      const filter_data = {
         status: s.filters.status,
         search: s.filters.search,
         type: typeof s.filters.type === 'string' ? s.filters.type : ''
       };
-      window.localStorage.setItem('beads-ui.filters', JSON.stringify(data));
-    });
-    // Persist board preferences
-    store.subscribe((s) => {
+      window.localStorage.setItem(
+        'beads-ui.filters',
+        JSON.stringify(filter_data)
+      );
       window.localStorage.setItem(
         'beads-ui.board',
         JSON.stringify({ closed_filter: s.board.closed_filter })
       );
+      if (s.board.board_filters) {
+        window.localStorage.setItem(
+          'beads-ui.board-filters',
+          JSON.stringify(s.board.board_filters)
+        );
+      }
     });
     void issues_view.load();
 
@@ -632,15 +822,16 @@ export function bootstrap(root_element) {
       subscriptions,
       sub_issue_stores
     );
-    const board_view = createBoardView(
-      board_root,
+    let board_view = createBoardView({
+      mount_element: board_root,
       data,
-      (id) => router.gotoIssue(id),
+      gotoIssue: (id) => router.gotoIssue(id),
       store,
       subscriptions,
-      sub_issue_stores,
-      transport
-    );
+      issueStores: sub_issue_stores,
+      transport,
+      columns: board_columns
+    });
     // Preload epics when switching to view
     /**
      * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board', filters: any }} s
@@ -650,15 +841,6 @@ export function bootstrap(root_element) {
     let unsub_issues_tab = null;
     /** @type {null | (() => Promise<void>)} */
     let unsub_epics_tab = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_ready = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_in_progress = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_closed = null;
-    /** @type {null | (() => Promise<void>)} */
-    let unsub_board_blocked = null;
-
     // Track in-flight subscriptions to prevent duplicates during rapid view switching
     /** @type {Set<string>} */
     const pending_subscriptions = new Set();
@@ -778,142 +960,49 @@ export function bootstrap(root_element) {
 
       // Board tab subscribes to lists used by columns
       if (s.view === 'board') {
-        // Ready column
-        if (
-          !unsub_board_ready &&
-          !pending_subscriptions.has('tab:board:ready')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:ready', {
-              type: 'ready-issues'
-            });
-          } catch (err) {
-            log('register board:ready store failed: %o', err);
+        for (const col of board_columns) {
+          const client_id = 'tab:board:' + col.id;
+          if (
+            !unsub_board_map.has(client_id) &&
+            !pending_subscriptions.has(client_id)
+          ) {
+            /** @type {{ type: string, params?: Record<string, string | number | boolean> }} */
+            const spec = { type: col.subscription };
+            if (col.params) {
+              spec.params =
+                /** @type {Record<string, string | number | boolean>} */ (
+                  col.params
+                );
+            }
+            try {
+              sub_issue_stores.register(client_id, spec);
+            } catch (err) {
+              log('register %s store failed: %o', client_id, err);
+            }
+            pending_subscriptions.add(client_id);
+            void subscriptions
+              .subscribeList(client_id, spec)
+              .then((u) => unsub_board_map.set(client_id, u))
+              .catch((err) => {
+                log('subscribe %s failed: %o', client_id, err);
+                showFatalFromError(err, `board (${col.label})`);
+              })
+              .finally(() => {
+                pending_subscriptions.delete(client_id);
+              });
           }
-          pending_subscriptions.add('tab:board:ready');
-          void subscriptions
-            .subscribeList('tab:board:ready', { type: 'ready-issues' })
-            .then((u) => (unsub_board_ready = u))
-            .catch((err) => {
-              log('subscribe board ready failed: %o', err);
-              showFatalFromError(err, 'board (Ready)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:ready');
-            });
-        }
-        // In Progress column
-        if (
-          !unsub_board_in_progress &&
-          !pending_subscriptions.has('tab:board:in-progress')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:in-progress', {
-              type: 'in-progress-issues'
-            });
-          } catch (err) {
-            log('register board:in-progress store failed: %o', err);
-          }
-          pending_subscriptions.add('tab:board:in-progress');
-          void subscriptions
-            .subscribeList('tab:board:in-progress', {
-              type: 'in-progress-issues'
-            })
-            .then((u) => (unsub_board_in_progress = u))
-            .catch((err) => {
-              log('subscribe board in-progress failed: %o', err);
-              showFatalFromError(err, 'board (In Progress)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:in-progress');
-            });
-        }
-        // Closed column
-        if (
-          !unsub_board_closed &&
-          !pending_subscriptions.has('tab:board:closed')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:closed', {
-              type: 'closed-issues'
-            });
-          } catch (err) {
-            log('register board:closed store failed: %o', err);
-          }
-          pending_subscriptions.add('tab:board:closed');
-          void subscriptions
-            .subscribeList('tab:board:closed', { type: 'closed-issues' })
-            .then((u) => (unsub_board_closed = u))
-            .catch((err) => {
-              log('subscribe board closed failed: %o', err);
-              showFatalFromError(err, 'board (Closed)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:closed');
-            });
-        }
-        // Blocked column
-        if (
-          !unsub_board_blocked &&
-          !pending_subscriptions.has('tab:board:blocked')
-        ) {
-          try {
-            sub_issue_stores.register('tab:board:blocked', {
-              type: 'blocked-issues'
-            });
-          } catch (err) {
-            log('register board:blocked store failed: %o', err);
-          }
-          pending_subscriptions.add('tab:board:blocked');
-          void subscriptions
-            .subscribeList('tab:board:blocked', { type: 'blocked-issues' })
-            .then((u) => (unsub_board_blocked = u))
-            .catch((err) => {
-              log('subscribe board blocked failed: %o', err);
-              showFatalFromError(err, 'board (Blocked)');
-            })
-            .finally(() => {
-              pending_subscriptions.delete('tab:board:blocked');
-            });
         }
       } else {
         // Unsubscribe all board lists when leaving the board view
-        if (unsub_board_ready) {
-          void unsub_board_ready().catch(() => {});
-          unsub_board_ready = null;
+        for (const [client_id, unsub] of unsub_board_map) {
+          void unsub().catch(() => {});
           try {
-            sub_issue_stores.unregister('tab:board:ready');
+            sub_issue_stores.unregister(client_id);
           } catch (err) {
-            log('unregister board:ready failed: %o', err);
+            log('unregister %s failed: %o', client_id, err);
           }
         }
-        if (unsub_board_in_progress) {
-          void unsub_board_in_progress().catch(() => {});
-          unsub_board_in_progress = null;
-          try {
-            sub_issue_stores.unregister('tab:board:in-progress');
-          } catch (err) {
-            log('unregister board:in-progress failed: %o', err);
-          }
-        }
-        if (unsub_board_closed) {
-          void unsub_board_closed().catch(() => {});
-          unsub_board_closed = null;
-          try {
-            sub_issue_stores.unregister('tab:board:closed');
-          } catch (err) {
-            log('unregister board:closed failed: %o', err);
-          }
-        }
-        if (unsub_board_blocked) {
-          void unsub_board_blocked().catch(() => {});
-          unsub_board_blocked = null;
-          try {
-            sub_issue_stores.unregister('tab:board:blocked');
-          } catch (err) {
-            log('unregister board:blocked failed: %o', err);
-          }
-        }
+        unsub_board_map.clear();
       }
     }
 

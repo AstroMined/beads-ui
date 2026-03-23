@@ -5,12 +5,18 @@
  */
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
-import { isRequest, makeError, makeOk } from '../app/protocol.js';
+import {
+  isMessageType,
+  isRequest,
+  makeError,
+  makeOk
+} from '../app/protocol.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
 import { resolveWorkspaceDatabase } from './db.js';
 import { fetchListForSubscription } from './list-adapters.js';
 import { debug } from './logging.js';
 import { getAvailableWorkspaces } from './registry-watcher.js';
+import { getSettings } from './settings.js';
 import { keyOf, registry } from './subscriptions.js';
 import { validateSubscribeListPayload } from './validators.js';
 
@@ -420,7 +426,7 @@ function applyClosedIssuesFilter(spec, items) {
  *
  * @param {Server} http_server
  * @param {{ path?: string, heartbeat_ms?: number, refresh_debounce_ms?: number, root_dir?: string, watcher?: { rebind: (opts?: { root_dir?: string }) => void, path: string } }} [options]
- * @returns {{ wss: WebSocketServer, broadcast: (type: MessageType, payload?: unknown) => void, scheduleListRefresh: () => void, setWorkspace: (root_dir: string) => { changed: boolean, workspace: { root_dir: string, db_path: string } } }}
+ * @returns {{ wss: WebSocketServer, broadcast: (type: MessageType, payload?: unknown) => void, broadcastSettingsChanged: (settings: import('./settings.js').SettingsObject) => void, scheduleListRefresh: () => void, setWorkspace: (root_dir: string) => { changed: boolean, workspace: { root_dir: string, db_path: string } } }}
  */
 export function attachWsServer(http_server, options = {}) {
   const ws_path = options.path || '/ws';
@@ -552,9 +558,19 @@ export function attachWsServer(http_server, options = {}) {
     return { changed, workspace: CURRENT_WORKSPACE };
   }
 
+  /**
+   * Broadcast settings-changed event to all open clients.
+   *
+   * @param {import('./settings.js').SettingsObject} settings
+   */
+  function broadcastSettingsChanged(settings) {
+    broadcast('settings-changed', { settings });
+  }
+
   return {
     wss,
     broadcast,
+    broadcastSettingsChanged,
     scheduleListRefresh,
     setWorkspace
     // v2: list subscription refresh handles updates
@@ -584,6 +600,27 @@ export async function handleMessage(ws, data) {
   }
 
   if (!isRequest(json)) {
+    // Distinguish structurally valid envelopes with unknown types from
+    // genuinely malformed requests so clients get a specific error code.
+    const j = /** @type {Record<string, unknown>} */ (json);
+    if (
+      typeof j.id === 'string' &&
+      typeof j.type === 'string' &&
+      !isMessageType(j.type)
+    ) {
+      log('unknown message type: %s', j.type);
+      const reply = {
+        id: j.id,
+        ok: false,
+        type: j.type,
+        error: {
+          code: 'unknown_type',
+          message: `Unknown message type: ${j.type}`
+        }
+      };
+      ws.send(JSON.stringify(reply));
+      return;
+    }
     log('invalid request');
     const reply = {
       id: 'unknown',
@@ -1338,11 +1375,11 @@ export async function handleMessage(ws, data) {
     return;
   }
 
-  // Unknown type
-  const err = makeError(
-    req,
-    'unknown_type',
-    `Unknown message type: ${req.type}`
-  );
-  ws.send(JSON.stringify(err));
+  // get-settings
+  if (req.type === 'get-settings') {
+    log('get-settings');
+    ws.send(JSON.stringify(makeOk(req, { settings: getSettings() })));
+    return;
+  }
+
 }

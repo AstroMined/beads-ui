@@ -20,7 +20,11 @@ import { debug } from './utils/logging.js';
  */
 
 /**
- * @typedef {{ closed_filter: ClosedFilter }} BoardState
+ * @typedef {{ parent: string|null, assignee: string|null, type: string|null }} BoardFilters
+ */
+
+/**
+ * @typedef {{ closed_filter: ClosedFilter, board_filters: BoardFilters }} BoardState
  */
 
 /**
@@ -41,11 +45,14 @@ import { debug } from './utils/logging.js';
  * @typedef {{ selected_id: string | null, view: ViewName, filters: Filters, board: BoardState, workspace: WorkspaceState }} AppState
  */
 
+/** @type {BoardFilters} */
+const DEFAULT_BOARD_FILTERS = { parent: null, assignee: null, type: null };
+
 /**
  * Create a simple store for application state.
  *
  * @param {Partial<AppState>} [initial]
- * @returns {{ getState: () => AppState, setState: (patch: { selected_id?: string | null, filters?: Partial<Filters>, workspace?: Partial<WorkspaceState> }) => void, subscribe: (fn: (s: AppState) => void) => () => void }}
+ * @returns {{ getState: () => AppState, setState: (patch: { selected_id?: string | null, view?: ViewName, filters?: Partial<Filters>, board?: Partial<BoardState & { board_filters?: Partial<BoardFilters> }>, workspace?: Partial<WorkspaceState> }) => void, subscribe: (fn: (s: AppState) => void) => () => void }}
  */
 export function createStore(initial = {}) {
   const log = debug('state');
@@ -65,7 +72,11 @@ export function createStore(initial = {}) {
         initial.board?.closed_filter === '7' ||
         initial.board?.closed_filter === 'today'
           ? initial.board?.closed_filter
-          : 'today'
+          : 'today',
+      board_filters: {
+        ...DEFAULT_BOARD_FILTERS,
+        ...(initial.board?.board_filters || {})
+      }
     },
     workspace: {
       current: initial.workspace?.current ?? null,
@@ -93,7 +104,7 @@ export function createStore(initial = {}) {
     /**
      * Update state. Nested filters can be partial.
      *
-     * @param {{ selected_id?: string | null, filters?: Partial<Filters>, board?: Partial<BoardState>, workspace?: Partial<WorkspaceState> }} patch
+     * @param {{ selected_id?: string | null, view?: ViewName, filters?: Partial<Filters>, board?: Partial<BoardState & { board_filters?: Partial<BoardFilters> }>, workspace?: Partial<WorkspaceState> }} patch
      */
     setState(patch) {
       /** @type {AppState} */
@@ -101,7 +112,14 @@ export function createStore(initial = {}) {
         ...state,
         ...patch,
         filters: { ...state.filters, ...(patch.filters || {}) },
-        board: { ...state.board, ...(patch.board || {}) },
+        board: {
+          ...state.board,
+          ...(patch.board || {}),
+          board_filters: {
+            ...state.board.board_filters,
+            ...(patch.board?.board_filters || {})
+          }
+        },
         workspace: {
           current:
             patch.workspace?.current !== undefined
@@ -116,7 +134,16 @@ export function createStore(initial = {}) {
       // Avoid emitting if nothing changed (shallow compare)
       const workspace_changed =
         next.workspace.current?.path !== state.workspace.current?.path ||
-        next.workspace.available.length !== state.workspace.available.length;
+        next.workspace.current?.database !==
+          state.workspace.current?.database ||
+        next.workspace.available.length !== state.workspace.available.length ||
+        JSON.stringify(next.workspace.available.map((w) => w.path)) !==
+          JSON.stringify(state.workspace.available.map((w) => w.path));
+      const board_filters_changed =
+        next.board.board_filters.parent !== state.board.board_filters.parent ||
+        next.board.board_filters.assignee !==
+          state.board.board_filters.assignee ||
+        next.board.board_filters.type !== state.board.board_filters.type;
       if (
         next.selected_id === state.selected_id &&
         next.view === state.view &&
@@ -124,6 +151,7 @@ export function createStore(initial = {}) {
         next.filters.search === state.filters.search &&
         next.filters.type === state.filters.type &&
         next.board.closed_filter === state.board.closed_filter &&
+        !board_filters_changed &&
         !workspace_changed
       ) {
         return;

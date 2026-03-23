@@ -40,6 +40,14 @@ export function getInMemoryWorkspaces() {
 }
 
 /**
+ * Clear all dynamically registered workspaces. Used in tests to reset
+ * module-level state between test cases.
+ */
+export function clearInMemoryWorkspaces() {
+  inMemoryWorkspaces.clear();
+}
+
+/**
  * @typedef {Object} RegistryEntry
  * @property {string} workspace_path
  * @property {string} socket_path
@@ -72,7 +80,8 @@ export function readRegistry() {
       return data;
     }
     return [];
-  } catch {
+  } catch (err) {
+    log('failed to read registry: %o', err);
     return [];
   }
 }
@@ -107,12 +116,13 @@ export function findWorkspaceEntry(root_dir) {
 }
 
 /**
- * Get all available workspaces from both the file-based registry and
- * dynamically registered in-memory workspaces.
+ * Get all available workspaces from the file-based registry,
+ * dynamically registered in-memory workspaces, and optional scan results.
  *
+ * @param {Array<{ workspace_path: string, name: string }>} [scanResults]
  * @returns {Array<{ path: string, database: string, pid: number, version: string }>}
  */
-export function getAvailableWorkspaces() {
+export function getAvailableWorkspaces(scanResults) {
   const entries = readRegistry();
   const fileWorkspaces = entries.map((entry) => ({
     path: entry.workspace_path,
@@ -126,8 +136,29 @@ export function getAvailableWorkspaces() {
   const inMemory = getInMemoryWorkspaces().filter(
     (w) => !seen.has(path.resolve(w.path))
   );
+  for (const w of inMemory) {
+    seen.add(path.resolve(w.path));
+  }
 
-  return [...fileWorkspaces, ...inMemory];
+  // Merge scan results, avoiding duplicates
+  /** @type {Array<{ path: string, database: string, pid: number, version: string }>} */
+  const scanned = [];
+  if (scanResults) {
+    for (const sr of scanResults) {
+      const resolved = path.resolve(sr.workspace_path);
+      if (!seen.has(resolved)) {
+        seen.add(resolved);
+        scanned.push({
+          path: resolved,
+          database: '',
+          pid: 0,
+          version: ''
+        });
+      }
+    }
+  }
+
+  return [...fileWorkspaces, ...inMemory, ...scanned];
 }
 
 /**
