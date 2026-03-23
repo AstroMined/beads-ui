@@ -72,7 +72,8 @@ export function readRegistry() {
       return data;
     }
     return [];
-  } catch {
+  } catch (err) {
+    log('failed to read registry: %o', err);
     return [];
   }
 }
