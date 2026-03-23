@@ -1,9 +1,9 @@
 # beads-ui Enhancements PRD
 
-**Status:** Complete **Date:** 2026-03-23 (Phase 0 completed 2026-03-22, Phase 1
+**Status:** Archived (2026-03-23) **Date:** 2026-03-23 (Phase 0 completed 2026-03-22, Phase 1
 completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3 completed
-2026-03-23, Phase R3 completed 2026-03-23, Phase R4 completed 2026-03-23,
-R5 completed 2026-03-23) **Author:**
+2026-03-23, Phase R2 completed 2026-03-23, Phase R3 completed 2026-03-23,
+Phase R4 completed 2026-03-23, Phase R5 completed 2026-03-23) **Author:**
 Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
@@ -11,6 +11,10 @@ Ryan Peterson **Related:**
 > minor, 8 low, 9 informational) across 4 remediation phases **Completion**: 35
 > of 35 requirements implemented (100%) **Epics**: beads-ui-w49.1,
 > beads-ui-w49.2, beads-ui-w49.3, beads-ui-w49.4
+
+> **Review Round 2**: Clean (0 findings). All 40 remediation deliverables implemented.
+> **Completion**: 75 of 75 total requirements implemented (100%)
+> **Epics**: beads-ui-w49.5, beads-ui-w49.6, beads-ui-w49.7, beads-ui-w49.8
 
 ## Context
 
