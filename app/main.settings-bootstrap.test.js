@@ -20,9 +20,24 @@ vi.mock('./ws.js', () => {
           settings: {
             board: {
               columns: [
-                { id: 'todo', label: 'To Do', subscription: 'todo-issues', drop_status: 'open' },
-                { id: 'doing', label: 'Doing', subscription: 'doing-issues', drop_status: 'in_progress' },
-                { id: 'done', label: 'Done', subscription: 'done-issues', drop_status: 'closed' }
+                {
+                  id: 'todo',
+                  label: 'To Do',
+                  subscription: 'todo-issues',
+                  drop_status: 'open'
+                },
+                {
+                  id: 'doing',
+                  label: 'Doing',
+                  subscription: 'doing-issues',
+                  drop_status: 'in_progress'
+                },
+                {
+                  id: 'done',
+                  label: 'Done',
+                  subscription: 'done-issues',
+                  drop_status: 'closed'
+                }
               ]
             }
           }
@@ -119,8 +134,18 @@ describe('settings-changed hot-reload', () => {
       settings: {
         board: {
           columns: [
-            { id: 'alpha', label: 'Alpha', subscription: 'alpha-list', drop_status: 'open' },
-            { id: 'beta', label: 'Beta', subscription: 'beta-list', drop_status: 'closed' }
+            {
+              id: 'alpha',
+              label: 'Alpha',
+              subscription: 'alpha-list',
+              drop_status: 'open'
+            },
+            {
+              id: 'beta',
+              label: 'Beta',
+              subscription: 'beta-list',
+              drop_status: 'closed'
+            }
           ]
         }
       }

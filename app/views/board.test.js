@@ -1717,7 +1717,15 @@ describe('views/board', () => {
       type: 'snapshot',
       id: 'tab:board:ready',
       revision: 1,
-      issues: [{ id: 'R-1', title: 'Ready', status: 'open', priority: 1, created_at: now }]
+      issues: [
+        {
+          id: 'R-1',
+          title: 'Ready',
+          status: 'open',
+          priority: 1,
+          created_at: now
+        }
+      ]
     });
 
     const view = createBoardView({
@@ -1740,8 +1748,20 @@ describe('views/board', () => {
       id: 'tab:board:ready',
       revision: 2,
       issues: [
-        { id: 'R-1', title: 'Ready', status: 'open', priority: 1, created_at: now },
-        { id: 'R-2', title: 'Ready2', status: 'open', priority: 2, created_at: now }
+        {
+          id: 'R-1',
+          title: 'Ready',
+          status: 'open',
+          priority: 1,
+          created_at: now
+        },
+        {
+          id: 'R-2',
+          title: 'Ready2',
+          status: 'open',
+          priority: 2,
+          created_at: now
+        }
       ]
     });
     // Mount should still be empty since we cleared (unsubscribed)
@@ -1755,15 +1775,34 @@ describe('views/board', () => {
     const now = Date.now();
     const issueStores = createTestIssueStores();
     const custom_cols = [
-      { id: 'open', label: 'Open', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'done', label: 'Done', subscription: 'custom-done', drop_status: 'closed' }
+      {
+        id: 'open',
+        label: 'Open',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'done',
+        label: 'Done',
+        subscription: 'custom-done',
+        drop_status: 'closed'
+      }
     ];
 
     issueStores.getStore('tab:board:done').applyPush({
       type: 'snapshot',
       id: 'tab:board:done',
       revision: 1,
-      issues: [{ id: 'D-1', title: 'Done', status: 'closed', priority: 1, closed_at: now, created_at: now - 1000 }]
+      issues: [
+        {
+          id: 'D-1',
+          title: 'Done',
+          status: 'closed',
+          priority: 1,
+          closed_at: now,
+          created_at: now - 1000
+        }
+      ]
     });
 
     const view = createBoardView({
@@ -1790,8 +1829,21 @@ describe('views/board', () => {
       id: 'tab:board:ready',
       revision: 1,
       issues: [
-        { id: 'R-1', title: 'One', status: 'open', priority: 1, created_at: now, parent: 'P-1' },
-        { id: 'R-2', title: 'Two', status: 'open', priority: 2, created_at: now }
+        {
+          id: 'R-1',
+          title: 'One',
+          status: 'open',
+          priority: 1,
+          created_at: now,
+          parent: 'P-1'
+        },
+        {
+          id: 'R-2',
+          title: 'Two',
+          status: 'open',
+          priority: 2,
+          created_at: now
+        }
       ]
     });
 
@@ -1831,15 +1883,34 @@ describe('views/board', () => {
     const now = Date.now();
     const issueStores = createTestIssueStores();
     const cols = [
-      { id: 'open', label: 'Open', subscription: 'ready-issues', drop_status: 'open' },
-      { id: 'done', label: 'Done', subscription: 'closed-issues', drop_status: 'closed' }
+      {
+        id: 'open',
+        label: 'Open',
+        subscription: 'ready-issues',
+        drop_status: 'open'
+      },
+      {
+        id: 'done',
+        label: 'Done',
+        subscription: 'closed-issues',
+        drop_status: 'closed'
+      }
     ];
 
     issueStores.getStore('tab:board:done').applyPush({
       type: 'snapshot',
       id: 'tab:board:done',
       revision: 1,
-      issues: [{ id: 'D-1', title: 'Done', status: 'closed', priority: 1, closed_at: now, created_at: now - 1000 }]
+      issues: [
+        {
+          id: 'D-1',
+          title: 'Done',
+          status: 'closed',
+          priority: 1,
+          closed_at: now,
+          created_at: now - 1000
+        }
+      ]
     });
 
     const view = createBoardView({

@@ -8,3 +8,6 @@ app/main.bundle.js.map
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Pipeline artifacts
+.claude/

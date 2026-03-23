@@ -1381,5 +1381,4 @@ export async function handleMessage(ws, data) {
     ws.send(JSON.stringify(makeOk(req, { settings: getSettings() })));
     return;
   }
-
 }

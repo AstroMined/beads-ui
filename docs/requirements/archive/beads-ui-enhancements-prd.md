@@ -1,10 +1,10 @@
 # beads-ui Enhancements PRD
 
-**Status:** Archived (2026-03-23) **Date:** 2026-03-23 (Phase 0 completed 2026-03-22, Phase 1
-completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3 completed
-2026-03-23, Phase R2 completed 2026-03-23, Phase R3 completed 2026-03-23,
-Phase R4 completed 2026-03-23, Phase R5 completed 2026-03-23) **Author:**
-Ryan Peterson **Related:**
+**Status:** Archived (2026-03-23) **Date:** 2026-03-23 (Phase 0 completed
+2026-03-22, Phase 1 completed 2026-03-23, Phase 2 completed 2026-03-22, Phase 3
+completed 2026-03-23, Phase R2 completed 2026-03-23, Phase R3 completed
+2026-03-23, Phase R4 completed 2026-03-23, Phase R5 completed 2026-03-23)
+**Author:** Ryan Peterson **Related:**
 [mantoni/beads-ui](https://github.com/mantoni/beads-ui) (upstream)
 
 > **Review Round 1**: 40 findings (1 critical, 4 major, 3 high, 8 medium, 7
@@ -12,8 +12,8 @@ Ryan Peterson **Related:**
 > of 35 requirements implemented (100%) **Epics**: beads-ui-w49.1,
 > beads-ui-w49.2, beads-ui-w49.3, beads-ui-w49.4
 
-> **Review Round 2**: Clean (0 findings). All 40 remediation deliverables implemented.
-> **Completion**: 75 of 75 total requirements implemented (100%)
+> **Review Round 2**: Clean (0 findings). All 40 remediation deliverables
+> implemented. **Completion**: 75 of 75 total requirements implemented (100%)
 > **Epics**: beads-ui-w49.5, beads-ui-w49.6, beads-ui-w49.7, beads-ui-w49.8
 
 ## Context
@@ -744,24 +744,24 @@ clean up minor code quality issues in app/views/board.js and app/state.js.
       clear() (`app/views/board.js:872-880`). Prevents ghost renders from
       orphaned closures on settings-change rebuild. (major)
 - [x] M2: Remove 4 event listeners (keydown, dragover, dragleave, drop) on
-      mount_element in clear() (`app/views/board.js:499,602,625,636`).
-      Prevents duplicate handlers accumulating on rebuild. (major)
-- [x] M3: Fix subscriptionToMode to handle unknown subscription types
-      correctly (`app/views/board.js:761-773`). Derive mode from column
-      drop_status or ColumnDef rather than defaulting to 'ready'. (major)
+      mount_element in clear() (`app/views/board.js:499,602,625,636`). Prevents
+      duplicate handlers accumulating on rebuild. (major)
+- [x] M3: Fix subscriptionToMode to handle unknown subscription types correctly
+      (`app/views/board.js:761-773`). Derive mode from column drop_status or
+      ColumnDef rather than defaulting to 'ready'. (major)
 - [x] M4: Normalize undefined to null in applyBoardFilters filter comparison
       (`app/views/board.js:796`). Prevent accidental filtering when
       board_filters state is partially constructed. (major)
-- [x] Mi1: Use column ID in closed filter select element ID instead of
-      hardcoded "closed-filter" (`app/views/board.js:306`). (minor)
+- [x] Mi1: Use column ID in closed filter select element ID instead of hardcoded
+      "closed-filter" (`app/views/board.js:306`). (minor)
 - [x] Mi2: Replace em-dash with hyphen in aria-label string
       (`app/views/board.js:484`). (minor)
-- [x] Mi3: Update fallback fetch to handle dynamic column types, not just
-      legacy 4-method API (`app/views/board.js:914`). (minor)
+- [x] Mi3: Update fallback fetch to handle dynamic column types, not just legacy
+      4-method API (`app/views/board.js:914`). (minor)
 - [x] Mi4: Replace identity .map((it) => it) with .slice()
       (`app/views/board.js:936`). (minor)
-- [x] Mi5: Move filter_options from module-level mutable to local variable
-      or return value (`app/views/board.js:129-130`). (minor)
+- [x] Mi5: Move filter_options from module-level mutable to local variable or
+      return value (`app/views/board.js:129-130`). (minor)
 - [x] Mi6: Update setState JSDoc signature to include board and view fields
       (`app/state.js:55`). (minor)
 - [x] Mi7: Review shallow workspace comparison for deep change detection

@@ -147,7 +147,10 @@ const settings_watcher = watchSettings(async (new_settings) => {
 // bd daemon in a different project). This enables automatic workspace switching.
 const registry_watcher = watchRegistry(
   (entries) => {
-    log('registry changed: %d entries, refreshing client lists', entries.length);
+    log(
+      'registry changed: %d entries, refreshing client lists',
+      entries.length
+    );
     scheduleListRefresh();
   },
   { debounce_ms: 500 }
