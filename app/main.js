@@ -681,22 +681,21 @@ export function bootstrap(root_element) {
       subscriptions,
       sub_issue_stores
     );
-    // Persist filter changes to localStorage
+    // Persist filter and board preferences to localStorage
     store.subscribe((s) => {
-      const data = {
+      const filter_data = {
         status: s.filters.status,
         search: s.filters.search,
         type: typeof s.filters.type === 'string' ? s.filters.type : ''
       };
-      window.localStorage.setItem('beads-ui.filters', JSON.stringify(data));
-    });
-    // Persist board preferences
-    store.subscribe((s) => {
+      window.localStorage.setItem(
+        'beads-ui.filters',
+        JSON.stringify(filter_data)
+      );
       window.localStorage.setItem(
         'beads-ui.board',
         JSON.stringify({ closed_filter: s.board.closed_filter })
       );
-      // Persist board filters separately
       if (s.board.board_filters) {
         window.localStorage.setItem(
           'beads-ui.board-filters',
