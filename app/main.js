@@ -588,16 +588,16 @@ export function bootstrap(root_element) {
             // Update column definitions
             board_columns = new_cols;
             // Re-create board view with new columns
-            board_view = createBoardView(
-              board_root,
+            board_view = createBoardView({
+              mount_element: board_root,
               data,
-              (id) => router.gotoIssue(id),
+              gotoIssue: (id) => router.gotoIssue(id),
               store,
               subscriptions,
-              sub_issue_stores,
+              issueStores: sub_issue_stores,
               transport,
-              board_columns
-            );
+              columns: board_columns
+            });
             // If board is active, re-subscribe and load with server columns
             const s = store.getState();
             if (s && s.view === 'board') {
