@@ -779,24 +779,14 @@ export function createBoardView(
   }
 
   /**
-   * Map subscription type to selectBoardColumn mode.
+   * Derive selectBoardColumn mode from a column's drop_status.
+   * Closed columns use cmpClosedDesc sort; all others use cmpPriorityThenCreated.
    *
-   * @param {string} subscription
-   * @returns {'ready'|'blocked'|'in_progress'|'closed'}
+   * @param {ColumnDef} col
+   * @returns {'ready'|'closed'}
    */
-  function subscriptionToMode(subscription) {
-    switch (subscription) {
-      case 'ready-issues':
-        return 'ready';
-      case 'blocked-issues':
-        return 'blocked';
-      case 'in-progress-issues':
-        return 'in_progress';
-      case 'closed-issues':
-        return 'closed';
-      default:
-        return 'ready';
-    }
+  function columnToMode(col) {
+    return col.drop_status === 'closed' ? 'closed' : 'ready';
   }
 
   /**
@@ -861,7 +851,7 @@ export function createBoardView(
           if (col.subscription === 'in-progress-issues') {
             continue; // already handled above
           }
-          const mode = subscriptionToMode(col.subscription);
+          const mode = columnToMode(col);
           const items = selectors.selectBoardColumn(
             'tab:board:' + col.id,
             mode
