@@ -1706,4 +1706,156 @@ describe('views/board', () => {
     ).map((el) => el.getAttribute('data-issue-id'));
     expect(closed).toEqual(['C-1']);
   });
+
+  test('clear() removes event listeners and unsubscribes from selectors', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [{ id: 'R-1', title: 'Ready', status: 'open', priority: 1, created_at: now }]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      issueStores
+    });
+    await view.load();
+
+    // Board is rendered
+    expect(mount.querySelectorAll('.board-card').length).toBeGreaterThan(0);
+
+    // Clear should remove all children and not throw
+    view.clear();
+    expect(mount.children.length).toBe(0);
+
+    // After clear, pushing new data should not re-render (unsubscribed)
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 2,
+      issues: [
+        { id: 'R-1', title: 'Ready', status: 'open', priority: 1, created_at: now },
+        { id: 'R-2', title: 'Ready2', status: 'open', priority: 2, created_at: now }
+      ]
+    });
+    // Mount should still be empty since we cleared (unsubscribed)
+    expect(mount.children.length).toBe(0);
+  });
+
+  test('columnToMode returns closed for closed drop_status columns', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const issueStores = createTestIssueStores();
+    const custom_cols = [
+      { id: 'open', label: 'Open', subscription: 'ready-issues', drop_status: 'open' },
+      { id: 'done', label: 'Done', subscription: 'custom-done', drop_status: 'closed' }
+    ];
+
+    issueStores.getStore('tab:board:done').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:done',
+      revision: 1,
+      issues: [{ id: 'D-1', title: 'Done', status: 'closed', priority: 1, closed_at: now, created_at: now - 1000 }]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      issueStores,
+      columns: custom_cols
+    });
+    await view.load();
+
+    // The done column should render (closed semantics from drop_status)
+    const done_section = mount.querySelector('#done-col');
+    expect(done_section).not.toBeNull();
+  });
+
+  test('applyBoardFilters handles undefined filter values without filtering', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const issueStores = createTestIssueStores();
+    issueStores.getStore('tab:board:ready').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:ready',
+      revision: 1,
+      issues: [
+        { id: 'R-1', title: 'One', status: 'open', priority: 1, created_at: now, parent: 'P-1' },
+        { id: 'R-2', title: 'Two', status: 'open', priority: 2, created_at: now }
+      ]
+    });
+
+    // Store with board_filters where parent is undefined (not null)
+    const store = {
+      getState: () => ({
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: undefined, assignee: null, type: null }
+        }
+      }),
+      setState() {},
+      subscribe() {
+        return () => {};
+      }
+    };
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    // Both items should be visible (undefined parent filter should not filter)
+    const ready_ids = Array.from(
+      mount.querySelectorAll('#ready-col .board-card')
+    ).map((el) => el.getAttribute('data-issue-id'));
+    expect(ready_ids).toEqual(['R-1', 'R-2']);
+  });
+
+  test('is_closed flag is set on ColumnDef for closed columns', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+
+    const now = Date.now();
+    const issueStores = createTestIssueStores();
+    const cols = [
+      { id: 'open', label: 'Open', subscription: 'ready-issues', drop_status: 'open' },
+      { id: 'done', label: 'Done', subscription: 'closed-issues', drop_status: 'closed' }
+    ];
+
+    issueStores.getStore('tab:board:done').applyPush({
+      type: 'snapshot',
+      id: 'tab:board:done',
+      revision: 1,
+      issues: [{ id: 'D-1', title: 'Done', status: 'closed', priority: 1, closed_at: now, created_at: now - 1000 }]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      issueStores,
+      columns: cols
+    });
+    await view.load();
+
+    // Closed column should have the closed filter dropdown
+    const filter_select = mount.querySelector('#done-col .board-closed-filter');
+    expect(filter_select).not.toBeNull();
+
+    // Non-closed column should NOT have it
+    const open_filter = mount.querySelector('#open-col .board-closed-filter');
+    expect(open_filter).toBeNull();
+  });
 });
