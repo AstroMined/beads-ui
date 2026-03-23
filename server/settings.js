@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS = {
 const SETTINGS_PATH = path.join(os.homedir(), '.beads', 'config.json');
 
 /** @type {SettingsObject} */
-let cached = DEFAULT_SETTINGS;
+let cached = structuredClone(DEFAULT_SETTINGS);
 
 /**
  * Load settings from ~/.beads/config.json.
@@ -77,7 +77,7 @@ export function loadSettings() {
     if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
       log('warning: failed to parse settings file, using defaults: %o', err);
     }
-    cached = DEFAULT_SETTINGS;
+    cached = structuredClone(DEFAULT_SETTINGS);
   }
   return cached;
 }
@@ -88,7 +88,7 @@ export function loadSettings() {
  * @returns {SettingsObject}
  */
 export function getSettings() {
-  return cached;
+  return structuredClone(cached);
 }
 
 /**
