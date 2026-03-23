@@ -44,7 +44,15 @@ export function mapSubscriptionToBdArgs(spec) {
       if (status.length === 0) {
         throw badRequest('Missing param: params.status');
       }
-      return ['list', '--json', '--tree=false', '--status', status];
+      return [
+        'list',
+        '--json',
+        '--tree=false',
+        '--status',
+        status,
+        '--limit',
+        '1000'
+      ];
     }
     case 'issue-detail': {
       const p = spec.params || {};
