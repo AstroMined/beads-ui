@@ -81,14 +81,23 @@ if (scan_roots.length > 0) {
   log('no discovery scan roots configured, skipping workspace scan');
 }
 
-// Watch the active beads DB and schedule subscription refresh for active lists
-const db_watcher = watchDb(config.root_dir, () => {
-  // Schedule subscription list refresh run for active subscriptions
-  log('db change detected → schedule refresh');
-  scheduleListRefresh();
-  // v2: all updates flow via subscription push envelopes only
-});
+// Lazy watcher wrapper: allows attachWsServer to hold a reference to the
+// db watcher before watchDb is called, avoiding a TDZ on scheduleListRefresh.
+/** @type {{ target: ReturnType<typeof watchDb> | null, rebind: (opts?: { root_dir?: string }) => void, path: string }} */
+const watcher_ref = {
+  target: null,
+  rebind(opts) {
+    if (this.target) {
+      this.target.rebind(opts);
+    }
+  },
+  get path() {
+    return this.target ? this.target.path : '';
+  }
+};
 
+// Attach WebSocket server first so scheduleListRefresh is available before
+// the watchDb callback that references it.
 const { scheduleListRefresh, broadcastSettingsChanged } = attachWsServer(
   server,
   {
@@ -97,9 +106,16 @@ const { scheduleListRefresh, broadcastSettingsChanged } = attachWsServer(
     // Coalesce DB change bursts into one refresh run
     refresh_debounce_ms: 75,
     root_dir: config.root_dir,
-    watcher: db_watcher
+    watcher: watcher_ref
   }
 );
+
+// Watch the active beads DB and schedule subscription refresh for active lists
+const db_watcher = watchDb(config.root_dir, () => {
+  log('db change detected, schedule refresh');
+  scheduleListRefresh();
+});
+watcher_ref.target = db_watcher;
 
 // Track previous discovery settings for change comparison
 let prev_scan_roots = JSON.stringify(settings.discovery.scan_roots || []);
