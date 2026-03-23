@@ -1206,9 +1206,10 @@ input.inline-edit:focus {
 /* Board view styles */
 .board-root {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--board-columns, 4), 1fr);
   gap: var(--space-8);
   padding: var(--space-6);
+  overflow-x: auto;
 }
 .board-column {
   display: flex;
