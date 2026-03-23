@@ -463,38 +463,47 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 
 ### What Was Completed
 
-- Discovery module (`server/discovery.js`) with `scanForWorkspaces(roots, depth)` using
-  recursive `fs.readdirSync` with `{ withFileTypes: true }`, skipping `node_modules`, `.git`,
-  and hidden directories, detecting `.beads/` subdirectories containing `*.db` or `metadata.json`
-- Registry integration (`server/registry-watcher.js`) with `getAvailableWorkspaces()` extended
-  to accept optional `scanResults` parameter, merging file-based registry, in-memory
-  registrations, and scan results with deduplication by resolved absolute path
-- Auto-registration on startup (`server/index.js`) scanning configured roots after
-  `loadSettings()` and registering discoveries before WebSocket server setup
-- Settings change re-scan (`server/index.js`) comparing previous and new discovery settings
-  in the `watchSettings()` callback, triggering re-scan when `scan_roots` or `scan_depth` change
-- Workspace picker enhancement (`app/views/workspace-picker.js`) showing "ProjectName - /path"
-  in dropdown options for multi-workspace scenarios
-- 11 unit tests in `server/discovery.test.js` covering depth limits, exclusion patterns,
-  nonexistent roots, empty roots, metadata.json detection, and multi-root scanning
-- Parent field investigation: confirmed `bd list --json` includes `parent` field on all issue
-  types (task, epic, feature), containing parent ID for children and null for root-level issues
+- Discovery module (`server/discovery.js`) with
+  `scanForWorkspaces(roots, depth)` using recursive `fs.readdirSync` with
+  `{ withFileTypes: true }`, skipping `node_modules`, `.git`, and hidden
+  directories, detecting `.beads/` subdirectories containing `*.db` or
+  `metadata.json`
+- Registry integration (`server/registry-watcher.js`) with
+  `getAvailableWorkspaces()` extended to accept optional `scanResults`
+  parameter, merging file-based registry, in-memory registrations, and scan
+  results with deduplication by resolved absolute path
+- Auto-registration on startup (`server/index.js`) scanning configured roots
+  after `loadSettings()` and registering discoveries before WebSocket server
+  setup
+- Settings change re-scan (`server/index.js`) comparing previous and new
+  discovery settings in the `watchSettings()` callback, triggering re-scan when
+  `scan_roots` or `scan_depth` change
+- Workspace picker enhancement (`app/views/workspace-picker.js`) showing
+  "ProjectName - /path" in dropdown options for multi-workspace scenarios
+- 11 unit tests in `server/discovery.test.js` covering depth limits, exclusion
+  patterns, nonexistent roots, empty roots, metadata.json detection, and
+  multi-root scanning
+- Parent field investigation: confirmed `bd list --json` includes `parent` field
+  on all issue types (task, epic, feature), containing parent ID for children
+  and null for root-level issues
 
 ### Deviations from Plan
 
-- Workspace picker enhancement was in `app/views/workspace-picker.js` (not `app/views/nav.js`
-  as originally suggested in the PRD). The workspace picker component was already extracted as a
-  separate view module.
+- Workspace picker enhancement was in `app/views/workspace-picker.js` (not
+  `app/views/nav.js` as originally suggested in the PRD). The workspace picker
+  component was already extracted as a separate view module.
 
 ### Key Patterns Established
 
-- **Directory scanning**: Recursive `walkDir()` with depth counter and `shouldSkip()` filter,
-  following the same `fs.readdirSync` with `{ withFileTypes: true }` pattern used by
-  `findNearestBeadsDb()` in `server/db.js`
-- **Registry merge**: Three-source merge (file registry, in-memory, scan results) with
-  progressive deduplication using a `Set` of resolved paths
-- **Settings change detection**: Previous settings comparison using `JSON.stringify` for
-  arrays and direct comparison for scalars, triggering re-scan only on actual changes
+- **Directory scanning**: Recursive `walkDir()` with depth counter and
+  `shouldSkip()` filter, following the same `fs.readdirSync` with
+  `{ withFileTypes: true }` pattern used by `findNearestBeadsDb()` in
+  `server/db.js`
+- **Registry merge**: Three-source merge (file registry, in-memory, scan
+  results) with progressive deduplication using a `Set` of resolved paths
+- **Settings change detection**: Previous settings comparison using
+  `JSON.stringify` for arrays and direct comparison for scalars, triggering
+  re-scan only on actual changes
 
 ## Remaining Open Questions
 
@@ -502,8 +511,8 @@ Reply:    { id: "...", ok: true, type: "get-settings", payload: { settings: <Set
 
 ## Resolved Questions
 
-| Question                                       | Decision              | Notes                                                                                                                                                     |
-| ---------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Should `in_review` be added to the bd CLI?     | No, already supported | bd CLI already accepts custom statuses including `in_review`. The UI just needs to query for it via `status-issues` subscription.                         |
-| Hot-reload vs page refresh on settings change? | Auto hot-reload       | Client tears down old subscriptions and rebuilds with new column definitions when `settings-changed` event arrives. Worth the complexity for polished UX. |
+| Question                                       | Decision              | Notes                                                                                                                                                                                                          |
+| ---------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Should `in_review` be added to the bd CLI?     | No, already supported | bd CLI already accepts custom statuses including `in_review`. The UI just needs to query for it via `status-issues` subscription.                                                                              |
+| Hot-reload vs page refresh on settings change? | Auto hot-reload       | Client tears down old subscriptions and rebuilds with new column definitions when `settings-changed` event arrives. Worth the complexity for polished UX.                                                      |
 | Does `bd list --json` include `parent` field?  | Yes, always present   | Confirmed in Phase 2 investigation: `parent` field present on all issue types (task, epic, feature). Contains parent ID for children, null for root-level. Phase 3 Parent/Epic filter is feasible as designed. |

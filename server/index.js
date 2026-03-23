@@ -59,7 +59,12 @@ if (scan_roots.length > 0) {
       registered++;
     }
   }
-  log('discovered %d workspaces from %d roots, registered %d new', discovered.length, scan_roots.length, registered);
+  log(
+    'discovered %d workspaces from %d roots, registered %d new',
+    discovered.length,
+    scan_roots.length,
+    registered
+  );
 } else {
   log('no discovery scan roots configured, skipping workspace scan');
 }
@@ -112,7 +117,11 @@ watchSettings((new_settings) => {
           re_registered++;
         }
       }
-      log('re-scan found %d workspaces, registered %d new', discovered.length, re_registered);
+      log(
+        're-scan found %d workspaces, registered %d new',
+        discovered.length,
+        re_registered
+      );
     }
   }
 });
