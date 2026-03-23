@@ -13,6 +13,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  regMod.clearInMemoryWorkspaces();
   if (tmp_dir) {
     fs.rmSync(tmp_dir, { recursive: true, force: true });
     tmp_dir = undefined;
