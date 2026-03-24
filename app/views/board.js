@@ -8,6 +8,26 @@ import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
 
 /**
+ * Calculate the minimum column width for a responsive board grid.
+ *
+ * @param {number} viewportWidth - Available viewport or container width in px.
+ * @param {number} columnCount - Number of visible columns.
+ * @param {number} gapPx - Gap between columns in px (CSS --space-8 = 16).
+ * @param {number} paddingPx - Horizontal padding on the board root in px (CSS --space-6 = 12).
+ * @returns {number} Minimum column width in px, floored at 180.
+ */
+export function computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx) {
+  if (columnCount <= 0) {
+    return viewportWidth;
+  }
+  const available = viewportWidth - (columnCount - 1) * gapPx - 2 * paddingPx;
+  if (columnCount === 1) {
+    return Math.max(180, Math.floor(available));
+  }
+  return Math.max(180, Math.floor(available / columnCount));
+}
+
+/**
  * @typedef {{
  *   id: string,
  *   title?: string,
@@ -284,7 +304,7 @@ export function createBoardView(options) {
       ${filterBarTemplate(last_filter_options)}
       <div
         class="panel__body board-root"
-        style="--board-columns: ${col_defs.length}"
+        style="--board-columns: ${col_defs.length}; --board-col-min-width: ${computeColMinWidth(mount_element.getBoundingClientRect?.()?.width || 1920, col_defs.length, 16, 12)}px"
       >
         ${col_defs.map((col) =>
           columnTemplate(col, column_data.get(col.id) || [])
@@ -459,9 +479,72 @@ export function createBoardView(options) {
     }
   }
 
+  /** @type {ResizeObserver|null} */
+  let resize_observer = null;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let resize_debounce_timer = null;
+
+  /**
+   * Update card condensation classes based on column width.
+   * Cards in narrow columns get condensed/minimal classes to fit.
+   */
+  function updateCardCondensation() {
+    const columns = Array.from(mount_element.querySelectorAll('.board-column'));
+    for (const col of columns) {
+      const col_width = col.getBoundingClientRect().width;
+      const cards = Array.from(col.querySelectorAll('.board-card'));
+      for (const card of cards) {
+        if (col_width < 180) {
+          card.classList.add('board-card--minimal');
+          card.classList.remove('board-card--condensed');
+        } else if (col_width < 260) {
+          card.classList.add('board-card--condensed');
+          card.classList.remove('board-card--minimal');
+        } else {
+          card.classList.remove('board-card--condensed');
+          card.classList.remove('board-card--minimal');
+        }
+      }
+    }
+  }
+
+  /**
+   * Set up a ResizeObserver on the mount element to recalculate column widths
+   * and update card condensation classes on resize.
+   */
+  function setupResizeObserver() {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    resize_observer = new ResizeObserver(() => {
+      if (resize_debounce_timer) {
+        clearTimeout(resize_debounce_timer);
+      }
+      resize_debounce_timer = setTimeout(() => {
+        resize_debounce_timer = null;
+        const board_root = /** @type {HTMLElement|null} */ (
+          mount_element.querySelector('.board-root')
+        );
+        if (!board_root) {
+          return;
+        }
+        const root_width = board_root.getBoundingClientRect().width;
+        const col_count = col_defs.length;
+        const min_width = computeColMinWidth(root_width, col_count, 16, 12);
+        board_root.style.setProperty(
+          '--board-col-min-width',
+          `${min_width}px`
+        );
+        updateCardCondensation();
+      }, 100);
+    });
+    resize_observer.observe(mount_element);
+  }
+
   function doRender() {
     render(template(), mount_element);
     postRenderEnhance();
+    updateCardCondensation();
   }
 
   /**
@@ -1013,6 +1096,7 @@ export function createBoardView(options) {
       } catch {
         // ignore fallback errors
       }
+      setupResizeObserver();
     },
     clear() {
       // Unsubscribe from selectors to prevent leaked subscriptions
@@ -1025,6 +1109,15 @@ export function createBoardView(options) {
       mount_element.removeEventListener('dragover', handleDragover);
       mount_element.removeEventListener('dragleave', handleDragleave);
       mount_element.removeEventListener('drop', handleDrop);
+      // Disconnect ResizeObserver
+      if (resize_observer) {
+        resize_observer.disconnect();
+        resize_observer = null;
+      }
+      if (resize_debounce_timer) {
+        clearTimeout(resize_debounce_timer);
+        resize_debounce_timer = null;
+      }
       // Reset drag state
       dragging_id = null;
       current_drop_target = null;
