@@ -114,6 +114,7 @@ describe('ResizeObserver integration', () => {
 
   /**
    * Create a board with some test issues and load it.
+   *
    * @param {HTMLElement} mount
    */
   async function createAndLoadBoard(mount) {
