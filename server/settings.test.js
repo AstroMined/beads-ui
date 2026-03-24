@@ -495,6 +495,317 @@ describe('settings', () => {
     });
   });
 
+  describe('loadProjectSettings', () => {
+    test('returns null when file is missing', async () => {
+      const { loadProjectSettings } = await freshImport();
+      const result = loadProjectSettings('/mock-workspace');
+      expect(result).toBeNull();
+    });
+
+    test('returns valid columns from project config', async () => {
+      const columns = [
+        {
+          id: 'todo',
+          label: 'Todo',
+          subscription: 'ready-issues',
+          drop_status: 'open'
+        }
+      ];
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({ board: { columns } })
+      );
+      const { loadProjectSettings } = await freshImport();
+      const result = loadProjectSettings('/mock-workspace');
+      expect(result).not.toBeNull();
+      expect(result?.board.columns).toEqual(columns);
+    });
+
+    test('filters invalid columns from project config', async () => {
+      const columns = [
+        {
+          id: 'valid',
+          label: 'Valid',
+          subscription: 'ready-issues',
+          drop_status: 'open'
+        },
+        null,
+        { id: '' }
+      ];
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({ board: { columns } })
+      );
+      const { loadProjectSettings } = await freshImport();
+      const result = loadProjectSettings('/mock-workspace');
+      expect(result).not.toBeNull();
+      expect(result?.board.columns).toHaveLength(1);
+      expect(result?.board.columns[0].id).toBe('valid');
+    });
+
+    test('returns null on malformed JSON', async () => {
+      file_contents.set('/mock-workspace/.beads/config.json', '{bad');
+      const { loadProjectSettings } = await freshImport();
+      const result = loadProjectSettings('/mock-workspace');
+      expect(result).toBeNull();
+    });
+
+    test('returns null when all columns are invalid', async () => {
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({ board: { columns: [null, {}, 42] } })
+      );
+      const { loadProjectSettings } = await freshImport();
+      const result = loadProjectSettings('/mock-workspace');
+      expect(result).toBeNull();
+    });
+
+    test('returns null when no board.columns key', async () => {
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({ server: { port: 5000 } })
+      );
+      const { loadProjectSettings } = await freshImport();
+      const result = loadProjectSettings('/mock-workspace');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getEffectiveSettings', () => {
+    test('project columns replace global columns', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({
+          server: { port: 3000, host: '127.0.0.1' }
+        })
+      );
+      const project_columns = [
+        {
+          id: 'proj-col',
+          label: 'Project Col',
+          subscription: 'ready-issues',
+          drop_status: 'open'
+        }
+      ];
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({ board: { columns: project_columns } })
+      );
+      const { loadSettings, getEffectiveSettings } = await freshImport();
+      loadSettings();
+      const result = getEffectiveSettings('/mock-workspace');
+      expect(result.board.columns).toEqual(project_columns);
+    });
+
+    test('falls back to global when no project settings', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
+      );
+      const { loadSettings, getEffectiveSettings, DEFAULT_SETTINGS } =
+        await freshImport();
+      loadSettings();
+      const result = getEffectiveSettings('/mock-workspace');
+      expect(result.board.columns).toEqual(DEFAULT_SETTINGS.board.columns);
+    });
+
+    test('falls back to global when project columns are invalid', async () => {
+      file_contents.set(
+        '/mock-home/.beads/config.json',
+        JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
+      );
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({ board: { columns: [null] } })
+      );
+      const { loadSettings, getEffectiveSettings, DEFAULT_SETTINGS } =
+        await freshImport();
+      loadSettings();
+      const result = getEffectiveSettings('/mock-workspace');
+      expect(result.board.columns).toEqual(DEFAULT_SETTINGS.board.columns);
+    });
+
+    test('returns immutable clone', async () => {
+      const { loadSettings, getEffectiveSettings } = await freshImport();
+      loadSettings();
+      const a = getEffectiveSettings('/mock-workspace');
+      a.board.columns = [];
+      const b = getEffectiveSettings('/mock-workspace');
+      expect(b.board.columns.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('watchProjectSettings', () => {
+    test('detects file changes and fires onChange', async () => {
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({
+          board: {
+            columns: [
+              {
+                id: 'a',
+                label: 'A',
+                subscription: 'ready-issues',
+                drop_status: 'open'
+              }
+            ]
+          }
+        })
+      );
+      // Make existsSync also return true for this directory
+      const fsmod = await import('node:fs');
+      const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
+      vi.mocked(fsmod.existsSync).mockImplementation(
+        (p) =>
+          String(p) === '/mock-workspace/.beads' ||
+          (orig ? orig(p) : false)
+      );
+
+      const { watchProjectSettings } = await freshImport();
+      const onChange = vi.fn();
+      watchProjectSettings('/mock-workspace', onChange, { debounce_ms: 100 });
+
+      // Simulate file change with different columns
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({
+          board: {
+            columns: [
+              {
+                id: 'b',
+                label: 'B',
+                subscription: 'closed-issues',
+                drop_status: 'closed'
+              }
+            ]
+          }
+        })
+      );
+      const project_watcher = watchers.find(
+        (w) => w.dir === '/mock-workspace/.beads'
+      );
+      expect(project_watcher).toBeDefined();
+      project_watcher?.cb('change', 'config.json');
+      vi.advanceTimersByTime(100);
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange.mock.calls[0][0]?.board.columns[0].id).toBe('b');
+
+      if (orig) vi.mocked(fsmod.existsSync).mockImplementation(orig);
+    });
+
+    test('debounces rapid changes', async () => {
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({
+          board: {
+            columns: [
+              {
+                id: 'a',
+                label: 'A',
+                subscription: 'ready-issues',
+                drop_status: 'open'
+              }
+            ]
+          }
+        })
+      );
+      const fsmod = await import('node:fs');
+      const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
+      vi.mocked(fsmod.existsSync).mockImplementation(
+        (p) =>
+          String(p) === '/mock-workspace/.beads' ||
+          (orig ? orig(p) : false)
+      );
+
+      const { watchProjectSettings } = await freshImport();
+      const onChange = vi.fn();
+      watchProjectSettings('/mock-workspace', onChange, { debounce_ms: 200 });
+
+      const project_watcher = watchers.find(
+        (w) => w.dir === '/mock-workspace/.beads'
+      );
+
+      // Fire twice rapidly
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({
+          board: {
+            columns: [
+              {
+                id: 'x',
+                label: 'X',
+                subscription: 's',
+                drop_status: 'open'
+              }
+            ]
+          }
+        })
+      );
+      project_watcher?.cb('change', 'config.json');
+      vi.advanceTimersByTime(50);
+
+      file_contents.set(
+        '/mock-workspace/.beads/config.json',
+        JSON.stringify({
+          board: {
+            columns: [
+              {
+                id: 'y',
+                label: 'Y',
+                subscription: 's',
+                drop_status: 'open'
+              }
+            ]
+          }
+        })
+      );
+      project_watcher?.cb('change', 'config.json');
+      vi.advanceTimersByTime(200);
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange.mock.calls[0][0]?.board.columns[0].id).toBe('y');
+
+      if (orig) vi.mocked(fsmod.existsSync).mockImplementation(orig);
+    });
+
+    test('close stops watching', async () => {
+      const fsmod = await import('node:fs');
+      const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
+      vi.mocked(fsmod.existsSync).mockImplementation(
+        (p) =>
+          String(p) === '/mock-workspace/.beads' ||
+          (orig ? orig(p) : false)
+      );
+
+      const { watchProjectSettings } = await freshImport();
+      const onChange = vi.fn();
+      const handle = watchProjectSettings('/mock-workspace', onChange);
+      handle.close();
+      expect(handle).toHaveProperty('close');
+
+      if (orig) vi.mocked(fsmod.existsSync).mockImplementation(orig);
+    });
+
+    test('returns no-op when dir does not exist', async () => {
+      const fsmod = await import('node:fs');
+      const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
+      vi.mocked(fsmod.existsSync).mockReturnValue(false);
+
+      const { watchProjectSettings } = await freshImport();
+      const onChange = vi.fn();
+      const handle = watchProjectSettings('/nonexistent', onChange);
+      expect(handle).toHaveProperty('close');
+      handle.close(); // should not throw
+
+      if (orig) {
+        vi.mocked(fsmod.existsSync).mockImplementation(orig);
+      } else {
+        vi.mocked(fsmod.existsSync).mockRestore();
+      }
+    });
+  });
+
   describe('config integration', () => {
     test('getConfig uses settings for port when env var not set', async () => {
       file_contents.set(
