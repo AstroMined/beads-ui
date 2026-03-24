@@ -1230,7 +1230,7 @@ input.inline-edit:focus {
 /* Board view styles */
 .board-root {
   display: grid;
-  grid-template-columns: repeat(var(--board-columns, 4), 1fr);
+  grid-template-columns: repeat(var(--board-columns, 4), minmax(var(--board-col-min-width, 300px), 1fr));
   gap: var(--space-8);
   padding: var(--space-6);
   overflow-x: auto;
@@ -1239,7 +1239,6 @@ input.inline-edit:focus {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  min-width: 380px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1343,6 +1342,26 @@ input.inline-edit:focus {
   box-shadow:
     0 4px 16px color-mix(in srgb, #000 24%, transparent),
     0 8px 32px color-mix(in srgb, #000 16%, transparent);
+}
+
+/* Responsive card condensation classes */
+.board-card--condensed .type-badge {
+  display: none;
+}
+.board-card--condensed {
+  padding: var(--space-4) var(--space-5);
+}
+.board-card--condensed .board-card__meta {
+  font-size: 11px;
+}
+.board-card--minimal .board-card__meta {
+  display: none;
+}
+.board-card--minimal .type-badge {
+  display: none;
+}
+.board-card--minimal {
+  padding: var(--space-3) var(--space-4);
 }
 
 .board-column--drag-over {
