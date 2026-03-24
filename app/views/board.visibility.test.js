@@ -115,9 +115,7 @@ function seedDefaultColumns(issueStores) {
     type: 'snapshot',
     id: 'tab:board:in-progress',
     revision: 1,
-    issues: [
-      { id: 'IP-1', title: 'in progress', priority: 0, created_at: now }
-    ]
+    issues: [{ id: 'IP-1', title: 'in progress', priority: 0, created_at: now }]
   });
   issueStores.getStore('tab:board:closed').applyPush({
     type: 'snapshot',
@@ -151,7 +149,9 @@ describe('views/board column visibility', () => {
     expect(columns.length).toBe(4);
 
     // Dropdown trigger shows 4/4
-    const trigger = mount.querySelector('.board-filter-bar .filter-dropdown__trigger');
+    const trigger = mount.querySelector(
+      '.board-filter-bar .filter-dropdown__trigger'
+    );
     expect(trigger?.textContent).toContain('4/4');
   });
 
@@ -185,7 +185,9 @@ describe('views/board column visibility', () => {
     expect(col_ids).not.toContain('blocked-col');
 
     // Dropdown trigger shows 3/4
-    const trigger = mount.querySelector('.board-filter-bar .filter-dropdown__trigger');
+    const trigger = mount.querySelector(
+      '.board-filter-bar .filter-dropdown__trigger'
+    );
     expect(trigger?.textContent).toContain('3/4');
   });
 
@@ -239,7 +241,8 @@ describe('views/board column visibility', () => {
     );
     /** @type {HTMLInputElement} */ (checkboxes[0]).click();
 
-    const style2 = mount.querySelector('.board-root')?.getAttribute('style') || '';
+    const style2 =
+      mount.querySelector('.board-root')?.getAttribute('style') || '';
     expect(style2).toContain('--board-columns: 3');
   });
 
@@ -296,7 +299,12 @@ describe('views/board column visibility localStorage persistence', () => {
     // Pre-seed localStorage
     localStorage.setItem(
       'beads-ui.board-col-vis:/test/project',
-      JSON.stringify({ blocked: true, ready: false, 'in-progress': true, closed: true })
+      JSON.stringify({
+        blocked: true,
+        ready: false,
+        'in-progress': true,
+        closed: true
+      })
     );
 
     document.body.innerHTML = '<div id="m"></div>';
@@ -319,7 +327,9 @@ describe('views/board column visibility localStorage persistence', () => {
     expect(col_ids).not.toContain('ready-col');
 
     // Dropdown trigger shows 3/4
-    const trigger = mount.querySelector('.board-filter-bar .filter-dropdown__trigger');
+    const trigger = mount.querySelector(
+      '.board-filter-bar .filter-dropdown__trigger'
+    );
     expect(trigger?.textContent).toContain('3/4');
   });
 

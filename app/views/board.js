@@ -16,7 +16,12 @@ import { createTypeBadge } from '../utils/type-badge.js';
  * @param {number} paddingPx - Horizontal padding on the board root in px (CSS --space-6 = 12).
  * @returns {number} Minimum column width in px, floored at 180.
  */
-export function computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx) {
+export function computeColMinWidth(
+  viewportWidth,
+  columnCount,
+  gapPx,
+  paddingPx
+) {
   if (columnCount <= 0) {
     return viewportWidth;
   }
@@ -195,7 +200,11 @@ export function createBoardView(options) {
         return defaults;
       }
       const parsed = JSON.parse(raw);
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
         return defaults;
       }
       return reconcileVisibility(parsed, col_defs);
@@ -332,9 +341,7 @@ export function createBoardView(options) {
     ).length;
     const total_count = col_defs.length;
     return html`
-      <div
-        class="filter-dropdown ${columns_dropdown_open ? 'is-open' : ''}"
-      >
+      <div class="filter-dropdown ${columns_dropdown_open ? 'is-open' : ''}">
         <button
           class="filter-dropdown__trigger"
           @click=${() => {
@@ -456,7 +463,12 @@ export function createBoardView(options) {
       ${filterBarTemplate(last_filter_options)}
       <div
         class="panel__body board-root"
-        style="--board-columns: ${visible_cols.length}; --board-col-min-width: ${computeColMinWidth(mount_element.getBoundingClientRect?.()?.width || 1920, visible_cols.length, 16, 12)}px"
+        style="--board-columns: ${visible_cols.length}; --board-col-min-width: ${computeColMinWidth(
+          mount_element.getBoundingClientRect?.()?.width || 1920,
+          visible_cols.length,
+          16,
+          12
+        )}px"
       >
         ${visible_cols.map((col) =>
           columnTemplate(col, column_data.get(col.id) || [])
@@ -683,10 +695,7 @@ export function createBoardView(options) {
         const root_width = board_root.getBoundingClientRect().width;
         const col_count = getVisibleColumns().length;
         const min_width = computeColMinWidth(root_width, col_count, 16, 12);
-        board_root.style.setProperty(
-          '--board-col-min-width',
-          `${min_width}px`
-        );
+        board_root.style.setProperty('--board-col-min-width', `${min_width}px`);
         updateCardCondensation();
       }, 100);
     });
