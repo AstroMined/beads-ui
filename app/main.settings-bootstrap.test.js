@@ -117,6 +117,96 @@ describe('settings bootstrap (C1)', () => {
   });
 });
 
+describe('settings-changed with effective settings', () => {
+  test('settings-changed with project-override columns rebuilds board', async () => {
+    const client = /** @type {any} */ (createWsClient());
+    window.location.hash = '#/board';
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = /** @type {HTMLElement} */ (document.getElementById('app'));
+
+    bootstrap(root);
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(3);
+    });
+
+    // Simulate server pushing effective settings with project-level column overrides
+    client._trigger('settings-changed', {
+      settings: {
+        board: {
+          columns: [
+            {
+              id: 'proj-backlog',
+              label: 'Project Backlog',
+              subscription: 'backlog-list',
+              drop_status: 'open'
+            },
+            {
+              id: 'proj-active',
+              label: 'Project Active',
+              subscription: 'active-list',
+              drop_status: 'in_progress'
+            }
+          ]
+        }
+      }
+    });
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(2);
+    });
+
+    const col_ids = Array.from(root.querySelectorAll('.board-column')).map(
+      (c) => c.id
+    );
+    expect(col_ids).toContain('proj-backlog-col');
+    expect(col_ids).toContain('proj-active-col');
+  });
+
+  test('settings-changed falling back to global columns works', async () => {
+    const client = /** @type {any} */ (createWsClient());
+    window.location.hash = '#/board';
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = /** @type {HTMLElement} */ (document.getElementById('app'));
+
+    bootstrap(root);
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(3);
+    });
+
+    // Simulate server pushing effective settings where project has no overrides
+    // (global columns sent as-is)
+    client._trigger('settings-changed', {
+      settings: {
+        board: {
+          columns: [
+            {
+              id: 'todo',
+              label: 'To Do',
+              subscription: 'todo-issues',
+              drop_status: 'open'
+            },
+            {
+              id: 'doing',
+              label: 'Doing',
+              subscription: 'doing-issues',
+              drop_status: 'in_progress'
+            },
+            {
+              id: 'done',
+              label: 'Done',
+              subscription: 'done-issues',
+              drop_status: 'closed'
+            }
+          ]
+        }
+      }
+    });
+    // Columns should remain the same (3 columns, same as initial)
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.board-column').length).toBe(3);
+    });
+  });
+});
+
 describe('settings-changed hot-reload', () => {
   test('settings hot-reload rebuilds board with new columns', async () => {
     const client = /** @type {any} */ (createWsClient());
