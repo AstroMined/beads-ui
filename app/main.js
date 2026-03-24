@@ -19,6 +19,7 @@ import { createIssueDialog } from './views/issue-dialog.js';
 import { createListView } from './views/list.js';
 import { createTopNav } from './views/nav.js';
 import { createNewIssueDialog } from './views/new-issue-dialog.js';
+import { createSettingsView } from './views/settings.js';
 import { createWorkspacePicker } from './views/workspace-picker.js';
 import { createWsClient } from './ws.js';
 
@@ -38,6 +39,7 @@ export function bootstrap(root_element) {
     </section>
     <section id="epics-root" class="route epics" hidden></section>
     <section id="board-root" class="route board" hidden></section>
+    <section id="settings-root" class="route settings" hidden></section>
     <section id="detail-panel" class="route detail" hidden></section>
   `;
   render(shell, root_element);
@@ -52,10 +54,20 @@ export function bootstrap(root_element) {
   const board_root = document.getElementById('board-root');
 
   /** @type {HTMLElement|null} */
+  const settings_root = document.getElementById('settings-root');
+
+  /** @type {HTMLElement|null} */
   const list_mount = document.getElementById('list-panel');
   /** @type {HTMLElement|null} */
   const detail_mount = document.getElementById('detail-panel');
-  if (list_mount && issues_root && epics_root && board_root && detail_mount) {
+  if (
+    list_mount &&
+    issues_root &&
+    epics_root &&
+    board_root &&
+    settings_root &&
+    detail_mount
+  ) {
     /** @type {HTMLElement|null} */
     const header_loading = document.getElementById('header-loading');
     const activity = createActivityIndicator(header_loading);
@@ -429,14 +441,15 @@ export function bootstrap(root_element) {
       log('filters parse error: %o', err);
     }
     // Load last-view from storage
-    /** @type {'issues'|'epics'|'board'} */
+    /** @type {'issues'|'epics'|'board'|'settings'} */
     let last_view = 'issues';
     try {
       const raw_view = window.localStorage.getItem('beads-ui.view');
       if (
         raw_view === 'issues' ||
         raw_view === 'epics' ||
-        raw_view === 'board'
+        raw_view === 'board' ||
+        raw_view === 'settings'
       ) {
         last_view = raw_view;
       }
@@ -629,6 +642,29 @@ export function bootstrap(root_element) {
     // Load workspaces after WebSocket is connected
     void loadWorkspaces();
 
+    // Settings view: wire transport adapter with send/on interface
+    const settingsTransport = {
+      /**
+       * @param {string} type
+       * @param {unknown} [payload]
+       * @returns {Promise<any>}
+       */
+      send: (type, payload) =>
+        tracked_send(/** @type {MessageType} */ (type), payload),
+      /**
+       * @param {string} type
+       * @param {(payload: any) => void} handler
+       * @returns {() => void}
+       */
+      on: (type, handler) =>
+        client.on(/** @type {MessageType} */ (type), handler)
+    };
+    const settings_view = createSettingsView(
+      settings_root,
+      store,
+      settingsTransport
+    );
+
     // Global New Issue dialog (UI-106) mounted at root so it is always visible
     const new_issue_dialog = createNewIssueDialog(
       root_element,
@@ -709,7 +745,7 @@ export function bootstrap(root_element) {
       const s = store.getState();
       store.setState({ selected_id: null });
       try {
-        /** @type {'issues'|'epics'|'board'} */
+        /** @type {'issues'|'epics'|'board'|'settings'} */
         const v = s.view || 'issues';
         router.gotoView(v);
       } catch {
@@ -834,7 +870,7 @@ export function bootstrap(root_element) {
     });
     // Preload epics when switching to view
     /**
-     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board', filters: any }} s
+     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board'|'settings', filters: any }} s
      */
     // --- Subscriptions: tab-level management and filter-driven updates ---
     /** @type {null | (() => Promise<void>)} */
@@ -879,7 +915,7 @@ export function bootstrap(root_element) {
     /**
      * Ensure only the active tab has subscriptions; clean up previous.
      *
-     * @param {{ view: 'issues'|'epics'|'board', filters: any }} s
+     * @param {{ view: 'issues'|'epics'|'board'|'settings', filters: any }} s
      */
     function ensureTabSubscriptions(s) {
       // Issues tab
@@ -1009,19 +1045,29 @@ export function bootstrap(root_element) {
     /**
      * Manage route visibility and list subscriptions per view.
      *
-     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board', filters: any }} s
+     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board'|'settings', filters: any }} s
      */
     const onRouteChange = (s) => {
-      if (issues_root && epics_root && board_root && detail_mount) {
+      if (
+        issues_root &&
+        epics_root &&
+        board_root &&
+        settings_root &&
+        detail_mount
+      ) {
         // Underlying route visibility is controlled only by selected view
         issues_root.hidden = s.view !== 'issues';
         epics_root.hidden = s.view !== 'epics';
         board_root.hidden = s.view !== 'board';
+        settings_root.hidden = s.view !== 'settings';
         // detail_mount visibility handled in subscription above
       }
       // Ensure subscriptions for the active tab before loading the view to
       // avoid empty initial renders due to racing list-delta.
       ensureTabSubscriptions(s);
+      if (s.view === 'settings') {
+        void settings_view.load();
+      }
       if (!s.selected_id && s.view === 'epics') {
         void epics_view.load();
       }

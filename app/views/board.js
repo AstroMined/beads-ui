@@ -8,6 +8,31 @@ import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
 
 /**
+ * Calculate the minimum column width for a responsive board grid.
+ *
+ * @param {number} viewportWidth - Available viewport or container width in px.
+ * @param {number} columnCount - Number of visible columns.
+ * @param {number} gapPx - Gap between columns in px (CSS --space-8 = 16).
+ * @param {number} paddingPx - Horizontal padding on the board root in px (CSS --space-6 = 12).
+ * @returns {number} Minimum column width in px, floored at 180.
+ */
+export function computeColMinWidth(
+  viewportWidth,
+  columnCount,
+  gapPx,
+  paddingPx
+) {
+  if (columnCount <= 0) {
+    return viewportWidth;
+  }
+  const available = viewportWidth - (columnCount - 1) * gapPx - 2 * paddingPx;
+  if (columnCount === 1) {
+    return Math.max(180, Math.floor(available));
+  }
+  return Math.max(180, Math.floor(available / columnCount));
+}
+
+/**
  * @typedef {{
  *   id: string,
  *   title?: string,
@@ -121,6 +146,100 @@ export function createBoardView(options) {
   const selectors = issueStores ? createListSelectors(issueStores) : null;
 
   /**
+   * Build the localStorage key for column visibility persistence.
+   *
+   * @returns {string|null} Key string, or null if workspace path unavailable.
+   */
+  function getVisibilityStorageKey() {
+    try {
+      const ws_path = store?.getState()?.workspace?.current?.path;
+      if (ws_path) {
+        return `beads-ui.board-col-vis:${ws_path}`;
+      }
+    } catch {
+      // ignore store errors
+    }
+    return null;
+  }
+
+  /**
+   * Reconcile stored visibility state with current column definitions.
+   * New columns default to visible; removed columns are pruned.
+   *
+   * @param {Record<string, boolean>} stored
+   * @param {ColumnDef[]} defs
+   * @returns {Record<string, boolean>}
+   */
+  function reconcileVisibility(stored, defs) {
+    /** @type {Record<string, boolean>} */
+    const result = {};
+    for (const col of defs) {
+      result[col.id] = col.id in stored ? stored[col.id] : true;
+    }
+    return result;
+  }
+
+  /**
+   * Load column visibility from localStorage and reconcile with current col_defs.
+   *
+   * @returns {Record<string, boolean>}
+   */
+  function loadVisibility() {
+    /** @type {Record<string, boolean>} */
+    const defaults = {};
+    for (const col of col_defs) {
+      defaults[col.id] = true;
+    }
+    const key = getVisibilityStorageKey();
+    if (!key) {
+      return defaults;
+    }
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        return defaults;
+      }
+      const parsed = JSON.parse(raw);
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return defaults;
+      }
+      return reconcileVisibility(parsed, col_defs);
+    } catch {
+      return defaults;
+    }
+  }
+
+  /**
+   * Persist current column visibility to localStorage.
+   */
+  function persistVisibility() {
+    const key = getVisibilityStorageKey();
+    if (!key) {
+      return;
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify(column_visibility));
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  /**
+   * Column visibility state: maps column id to boolean (visible or not).
+   * Initialized from localStorage if available, otherwise all visible.
+   *
+   * @type {Record<string, boolean>}
+   */
+  let column_visibility = loadVisibility();
+
+  /** Whether the columns dropdown is currently open */
+  let columns_dropdown_open = false;
+
+  /**
    * Closed column filter mode.
    * 'today' → items with closed_at since local day start
    * '3' → last 3 days; '7' → last 7 days
@@ -194,6 +313,64 @@ export function createBoardView(options) {
   }
 
   /**
+   * Get the list of visible columns based on column_visibility state.
+   *
+   * @returns {ColumnDef[]}
+   */
+  function getVisibleColumns() {
+    return col_defs.filter((c) => column_visibility[c.id] !== false);
+  }
+
+  /**
+   * Toggle visibility for a column, persist, and re-render.
+   *
+   * @param {string} col_id
+   */
+  function toggleColumnVisibility(col_id) {
+    column_visibility[col_id] = !column_visibility[col_id];
+    persistVisibility();
+    doRender();
+  }
+
+  /**
+   * Render the columns visibility dropdown template.
+   */
+  function columnVisibilityTemplate() {
+    const visible_count = col_defs.filter(
+      (c) => column_visibility[c.id] !== false
+    ).length;
+    const total_count = col_defs.length;
+    return html`
+      <div class="filter-dropdown ${columns_dropdown_open ? 'is-open' : ''}">
+        <button
+          class="filter-dropdown__trigger"
+          @click=${() => {
+            columns_dropdown_open = !columns_dropdown_open;
+            doRender();
+          }}
+        >
+          Columns ${visible_count}/${total_count}
+          <span class="filter-dropdown__arrow">▾</span>
+        </button>
+        <div class="filter-dropdown__menu">
+          ${col_defs.map(
+            (col) => html`
+              <label class="filter-dropdown__option">
+                <input
+                  type="checkbox"
+                  .checked=${column_visibility[col.id] !== false}
+                  @change=${() => toggleColumnVisibility(col.id)}
+                />
+                ${col.label}
+              </label>
+            `
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
    * Render the filter bar with three select dropdowns above the board grid.
    *
    * @param {{ parents: string[], assignees: string[], types: string[] }} filter_options
@@ -256,6 +433,7 @@ export function createBoardView(options) {
               </option>`
           )}
         </select>
+        ${columnVisibilityTemplate()}
       </div>
     `;
   }
@@ -280,13 +458,19 @@ export function createBoardView(options) {
   }
 
   function template() {
+    const visible_cols = getVisibleColumns();
     return html`
       ${filterBarTemplate(last_filter_options)}
       <div
         class="panel__body board-root"
-        style="--board-columns: ${col_defs.length}"
+        style="--board-columns: ${visible_cols.length}; --board-col-min-width: ${computeColMinWidth(
+          mount_element.getBoundingClientRect?.()?.width || 1920,
+          visible_cols.length,
+          16,
+          12
+        )}px"
       >
-        ${col_defs.map((col) =>
+        ${visible_cols.map((col) =>
           columnTemplate(col, column_data.get(col.id) || [])
         )}
       </div>
@@ -459,9 +643,69 @@ export function createBoardView(options) {
     }
   }
 
+  /** @type {ResizeObserver|null} */
+  let resize_observer = null;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let resize_debounce_timer = null;
+
+  /**
+   * Update card condensation classes based on column width.
+   * Cards in narrow columns get condensed/minimal classes to fit.
+   */
+  function updateCardCondensation() {
+    const columns = Array.from(mount_element.querySelectorAll('.board-column'));
+    for (const col of columns) {
+      const col_width = col.getBoundingClientRect().width;
+      const cards = Array.from(col.querySelectorAll('.board-card'));
+      for (const card of cards) {
+        if (col_width < 180) {
+          card.classList.add('board-card--minimal');
+          card.classList.remove('board-card--condensed');
+        } else if (col_width < 260) {
+          card.classList.add('board-card--condensed');
+          card.classList.remove('board-card--minimal');
+        } else {
+          card.classList.remove('board-card--condensed');
+          card.classList.remove('board-card--minimal');
+        }
+      }
+    }
+  }
+
+  /**
+   * Set up a ResizeObserver on the mount element to recalculate column widths
+   * and update card condensation classes on resize.
+   */
+  function setupResizeObserver() {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    resize_observer = new ResizeObserver(() => {
+      if (resize_debounce_timer) {
+        clearTimeout(resize_debounce_timer);
+      }
+      resize_debounce_timer = setTimeout(() => {
+        resize_debounce_timer = null;
+        const board_root = /** @type {HTMLElement|null} */ (
+          mount_element.querySelector('.board-root')
+        );
+        if (!board_root) {
+          return;
+        }
+        const root_width = board_root.getBoundingClientRect().width;
+        const col_count = getVisibleColumns().length;
+        const min_width = computeColMinWidth(root_width, col_count, 16, 12);
+        board_root.style.setProperty('--board-col-min-width', `${min_width}px`);
+        updateCardCondensation();
+      }, 100);
+    });
+    resize_observer.observe(mount_element);
+  }
+
   function doRender() {
     render(template(), mount_element);
     postRenderEnhance();
+    updateCardCondensation();
   }
 
   /**
@@ -709,6 +953,19 @@ export function createBoardView(options) {
   mount_element.addEventListener('dragover', handleDragover);
   mount_element.addEventListener('dragleave', handleDragleave);
   mount_element.addEventListener('drop', handleDrop);
+
+  // Click outside to close columns dropdown
+  /** @param {MouseEvent} e */
+  const clickOutsideHandler = (e) => {
+    const target = /** @type {HTMLElement|null} */ (e.target);
+    if (target && !target.closest('.filter-dropdown')) {
+      if (columns_dropdown_open) {
+        columns_dropdown_open = false;
+        doRender();
+      }
+    }
+  };
+  document.addEventListener('click', clickOutsideHandler);
 
   /**
    * @param {HTMLElement} from
@@ -1013,6 +1270,7 @@ export function createBoardView(options) {
       } catch {
         // ignore fallback errors
       }
+      setupResizeObserver();
     },
     clear() {
       // Unsubscribe from selectors to prevent leaked subscriptions
@@ -1025,6 +1283,16 @@ export function createBoardView(options) {
       mount_element.removeEventListener('dragover', handleDragover);
       mount_element.removeEventListener('dragleave', handleDragleave);
       mount_element.removeEventListener('drop', handleDrop);
+      document.removeEventListener('click', clickOutsideHandler);
+      // Disconnect ResizeObserver
+      if (resize_observer) {
+        resize_observer.disconnect();
+        resize_observer = null;
+      }
+      if (resize_debounce_timer) {
+        clearTimeout(resize_debounce_timer);
+        resize_debounce_timer = null;
+      }
       // Reset drag state
       dragging_id = null;
       current_drop_target = null;

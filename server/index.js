@@ -11,7 +11,12 @@ import {
   registerWorkspace,
   watchRegistry
 } from './registry-watcher.js';
-import { loadSettings, watchSettings } from './settings.js';
+import {
+  getEffectiveSettings,
+  loadSettings,
+  watchProjectSettings,
+  watchSettings
+} from './settings.js';
 import { watchDb } from './watcher.js';
 import { attachWsServer } from './ws.js';
 
@@ -124,14 +129,16 @@ watcher_ref.target = db_watcher;
 let prev_scan_roots = JSON.stringify(settings.discovery.scan_roots || []);
 let prev_scan_depth = settings.discovery.scan_depth ?? 2;
 
-// Watch settings file for changes and push to connected clients
-const settings_watcher = watchSettings(async (new_settings) => {
-  log('settings changed, broadcasting to clients');
-  broadcastSettingsChanged(new_settings);
+// Watch settings file for changes and push effective settings to connected clients
+const settings_watcher = watchSettings(async () => {
+  log('global settings changed, broadcasting effective settings to clients');
+  const effective = getEffectiveSettings(config.root_dir);
+  broadcastSettingsChanged(effective);
 
   // Re-scan if discovery settings changed
-  const new_roots = new_settings.discovery?.scan_roots || [];
-  const new_depth = new_settings.discovery?.scan_depth ?? 2;
+  const fresh_settings = getEffectiveSettings(config.root_dir);
+  const new_roots = fresh_settings.discovery?.scan_roots || [];
+  const new_depth = fresh_settings.discovery?.scan_depth ?? 2;
   const new_roots_str = JSON.stringify(new_roots);
   if (new_roots_str !== prev_scan_roots || new_depth !== prev_scan_depth) {
     prev_scan_roots = new_roots_str;
@@ -141,6 +148,13 @@ const settings_watcher = watchSettings(async (new_settings) => {
       await discoverAndRegister(new_roots, new_depth);
     }
   }
+});
+
+// Watch project-level settings for changes and broadcast effective settings
+let project_settings_watcher = watchProjectSettings(config.root_dir, () => {
+  log('project settings changed, broadcasting effective settings to clients');
+  const effective = getEffectiveSettings(config.root_dir);
+  broadcastSettingsChanged(effective);
 });
 
 // Watch the global registry for workspace changes (e.g., when user starts
@@ -161,6 +175,7 @@ function shutdown() {
   log('shutting down');
   db_watcher.close();
   settings_watcher.close();
+  project_settings_watcher.close();
   registry_watcher.close();
   server.close();
 }
