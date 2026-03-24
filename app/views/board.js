@@ -141,15 +141,91 @@ export function createBoardView(options) {
   const selectors = issueStores ? createListSelectors(issueStores) : null;
 
   /**
+   * Build the localStorage key for column visibility persistence.
+   *
+   * @returns {string|null} Key string, or null if workspace path unavailable.
+   */
+  function getVisibilityStorageKey() {
+    try {
+      const ws_path = store?.getState()?.workspace?.current?.path;
+      if (ws_path) {
+        return `beads-ui.board-col-vis:${ws_path}`;
+      }
+    } catch {
+      // ignore store errors
+    }
+    return null;
+  }
+
+  /**
+   * Reconcile stored visibility state with current column definitions.
+   * New columns default to visible; removed columns are pruned.
+   *
+   * @param {Record<string, boolean>} stored
+   * @param {ColumnDef[]} defs
+   * @returns {Record<string, boolean>}
+   */
+  function reconcileVisibility(stored, defs) {
+    /** @type {Record<string, boolean>} */
+    const result = {};
+    for (const col of defs) {
+      result[col.id] = col.id in stored ? stored[col.id] : true;
+    }
+    return result;
+  }
+
+  /**
+   * Load column visibility from localStorage and reconcile with current col_defs.
+   *
+   * @returns {Record<string, boolean>}
+   */
+  function loadVisibility() {
+    /** @type {Record<string, boolean>} */
+    const defaults = {};
+    for (const col of col_defs) {
+      defaults[col.id] = true;
+    }
+    const key = getVisibilityStorageKey();
+    if (!key) {
+      return defaults;
+    }
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        return defaults;
+      }
+      const parsed = JSON.parse(raw);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return defaults;
+      }
+      return reconcileVisibility(parsed, col_defs);
+    } catch {
+      return defaults;
+    }
+  }
+
+  /**
+   * Persist current column visibility to localStorage.
+   */
+  function persistVisibility() {
+    const key = getVisibilityStorageKey();
+    if (!key) {
+      return;
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify(column_visibility));
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  /**
    * Column visibility state: maps column id to boolean (visible or not).
-   * All columns default to visible.
+   * Initialized from localStorage if available, otherwise all visible.
    *
    * @type {Record<string, boolean>}
    */
-  let column_visibility = {};
-  for (const col of col_defs) {
-    column_visibility[col.id] = true;
-  }
+  let column_visibility = loadVisibility();
 
   /** Whether the columns dropdown is currently open */
   let columns_dropdown_open = false;
@@ -237,12 +313,13 @@ export function createBoardView(options) {
   }
 
   /**
-   * Toggle visibility for a column and re-render.
+   * Toggle visibility for a column, persist, and re-render.
    *
    * @param {string} col_id
    */
   function toggleColumnVisibility(col_id) {
     column_visibility[col_id] = !column_visibility[col_id];
+    persistVisibility();
     doRender();
   }
 
