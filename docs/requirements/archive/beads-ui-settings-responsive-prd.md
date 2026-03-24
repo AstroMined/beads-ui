@@ -1,9 +1,13 @@
 # beads-ui Settings & Responsive Board PRD
 
-**Status:** Complete (all phases delivered) **Date:** 2026-03-24 **Author:**
+**Status:** Archived (2026-03-24) **Date:** 2026-03-24 **Author:**
 Ryan Peterson **Related:**
-[beads-ui Enhancements PRD](archive/beads-ui-enhancements-prd.md) (predecessor,
+[beads-ui Enhancements PRD](beads-ui-enhancements-prd.md) (predecessor,
 archived)
+
+> **Review Round 1**: Clean (0 findings). All 4 epics passed code review with no remediation needed.
+> **Completion**: 52 of 52 requirements implemented (100%)
+> **Epics**: beads-ui-eit.1, beads-ui-eit.2, beads-ui-eit.3, beads-ui-eit.4
 
 ## Context
 
