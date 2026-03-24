@@ -16,7 +16,12 @@ import { resolveWorkspaceDatabase } from './db.js';
 import { fetchListForSubscription } from './list-adapters.js';
 import { debug } from './logging.js';
 import { getAvailableWorkspaces } from './registry-watcher.js';
-import { getSettings } from './settings.js';
+import {
+  getEffectiveSettings,
+  getSettings,
+  loadProjectSettings,
+  validateColumnDef
+} from './settings.js';
 import { keyOf, registry } from './subscriptions.js';
 import { validateSubscribeListPayload } from './validators.js';
 
@@ -1375,10 +1380,108 @@ export async function handleMessage(ws, data) {
     return;
   }
 
-  // get-settings
+  // get-settings (returns effective merged settings)
   if (req.type === 'get-settings') {
     log('get-settings');
-    ws.send(JSON.stringify(makeOk(req, { settings: getSettings() })));
+    const settings = CURRENT_WORKSPACE
+      ? getEffectiveSettings(CURRENT_WORKSPACE.root_dir)
+      : getSettings();
+    ws.send(JSON.stringify(makeOk(req, { settings })));
+    return;
+  }
+
+  // get-project-settings (returns raw project overrides)
+  if (req.type === 'get-project-settings') {
+    log('get-project-settings');
+    if (!CURRENT_WORKSPACE) {
+      ws.send(JSON.stringify(makeOk(req, { settings: null })));
+      return;
+    }
+    const project = loadProjectSettings(CURRENT_WORKSPACE.root_dir);
+    ws.send(JSON.stringify(makeOk(req, { settings: project })));
+    return;
+  }
+
+  // save-settings
+  if (req.type === 'save-settings') {
+    log('save-settings');
+    const payload = /** @type {Record<string, unknown>} */ (req.payload || {});
+    const scope = payload.scope;
+
+    if (scope !== 'global' && scope !== 'project') {
+      ws.send(
+        JSON.stringify(
+          makeError(req, 'invalid_scope', 'scope must be "global" or "project"')
+        )
+      );
+      return;
+    }
+
+    const incoming =
+      /** @type {{ board?: { columns?: unknown[] }, discovery?: { scan_roots?: string[], scan_depth?: number } }} */ (
+        payload.settings || {}
+      );
+
+    // Validate columns if present
+    if (incoming.board && Array.isArray(incoming.board.columns)) {
+      const invalid = incoming.board.columns.find(
+        (col) => !validateColumnDef(col)
+      );
+      if (invalid !== undefined) {
+        ws.send(
+          JSON.stringify(
+            makeError(
+              req,
+              'invalid_columns',
+              'One or more column definitions are invalid'
+            )
+          )
+        );
+        return;
+      }
+    }
+
+    /** @type {string} */
+    let target_path;
+    if (scope === 'global') {
+      const os = await import('node:os');
+      target_path = path.join(os.homedir(), '.beads', 'config.json');
+    } else {
+      if (!CURRENT_WORKSPACE) {
+        ws.send(
+          JSON.stringify(
+            makeError(req, 'no_workspace', 'No workspace is active')
+          )
+        );
+        return;
+      }
+      target_path = path.join(
+        CURRENT_WORKSPACE.root_dir,
+        '.beads',
+        'config.json'
+      );
+    }
+
+    try {
+      const fs = await import('node:fs');
+      const dir = path.dirname(target_path);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmp = target_path + '.' + Math.random().toString(36).slice(2, 8);
+      fs.writeFileSync(tmp, JSON.stringify(incoming, null, 2), 'utf8');
+      fs.renameSync(tmp, target_path);
+      ws.send(JSON.stringify(makeOk(req, { ok: true })));
+    } catch (err) {
+      log('save-settings error: %o', err);
+      ws.send(
+        JSON.stringify(
+          makeError(
+            req,
+            'write_failed',
+            `Failed to write settings: ${/** @type {Error} */ (err).message}`
+          )
+        )
+      );
+    }
     return;
   }
 }
