@@ -1,6 +1,6 @@
 # beads-ui Settings & Responsive Board PRD
 
-**Status:** Draft (Phase 0, Phase 1 Complete)
+**Status:** Draft (Phase 0, Phase 1, Phase 2 Complete)
 **Date:** 2026-03-24
 **Author:** Ryan Peterson
 **Related:** [beads-ui Enhancements PRD](archive/beads-ui-enhancements-prd.md) (predecessor, archived)
@@ -278,23 +278,47 @@ commits:
 
 **Depends on:** Phase 0 (effective settings flow for column definitions)
 
-- [ ] Add `column_visibility` state (`Record<string, boolean>`) to board view
+- [x] Add `column_visibility` state (`Record<string, boolean>`) to board view
       local state, defaulting all columns to visible
-- [ ] Column visibility dropdown in the board filter bar following existing
+- [x] Column visibility dropdown in the board filter bar following existing
       `.filter-dropdown` pattern: trigger button labeled "Columns" with "N/M"
       count badge, checkbox menu per column
-- [ ] Filter `col_defs` by visibility before mapping to `columnTemplate()` in
+- [x] Filter `col_defs` by visibility before mapping to `columnTemplate()` in
       the board template function
-- [ ] Update `--board-columns` CSS variable to reflect visible column count
+- [x] Update `--board-columns` CSS variable to reflect visible column count
       (integrates with Phase 1 responsive grid)
-- [ ] Persist visibility state to localStorage keyed by workspace path
+- [x] Persist visibility state to localStorage keyed by workspace path
       (`beads-ui.board-col-vis:<workspace_path>`)
-- [ ] Load visibility state from localStorage on board view `load()`, with
+- [x] Load visibility state from localStorage on board view `load()`, with
       reconciliation: new columns default visible, removed columns pruned
-- [ ] Keep subscriptions active for hidden columns (visibility is a render-only
+- [x] Keep subscriptions active for hidden columns (visibility is a render-only
       concern, not a data concern)
-- [ ] Tests for visibility toggle, persistence, reconciliation with column
+- [x] Tests for visibility toggle, persistence, reconciliation with column
       changes
+
+#### Phase 2 Outcomes
+
+**What Was Completed**
+
+- `column_visibility` state (`Record<string, boolean>`) added to board view closure
+- "Columns N/M" filter dropdown in the board filter bar using existing `.filter-dropdown` CSS pattern
+- `col_defs` filtering before render: hidden columns excluded from the grid
+- `--board-columns` CSS variable updated to reflect visible column count
+- localStorage persistence keyed by workspace path (`beads-ui.board-col-vis:<workspace_path>`)
+- Reconciliation logic: new columns default visible, removed columns pruned from stored state
+- Subscriptions remain active for hidden columns (render-only concern)
+- 11 tests covering toggle, persistence, reconciliation, and dropdown UI in `board.visibility.test.js`
+
+**Deviations from Plan**
+
+- No CSS additions were needed; the existing `.filter-dropdown` pattern covered all styling requirements without modification
+- `reconcileVisibility` and persistence functions are internal to the `createBoardView` closure rather than exported, since they are tested through the public board view API
+
+**Key Patterns Established**
+
+- localStorage key pattern for per-workspace board preferences: `beads-ui.board-col-vis:<workspace_path>`
+- Reconciliation pattern for stored-vs-current state divergence (reusable for Phase 3 settings changes)
+- Click-outside handler pattern added to board view (mirrors existing list view pattern)
 
 ### Phase 3: Settings UI
 
@@ -524,15 +548,15 @@ No scroll (type badge hidden, padding reduced)
 
 ### Phase 2
 
-- [ ] Column visibility dropdown appears in board filter bar with all columns
+- [x] Column visibility dropdown appears in board filter bar with all columns
       checked by default
-- [ ] Unchecking a column removes it from the board grid immediately
-- [ ] `--board-columns` CSS variable updates to reflect visible count
+- [x] Unchecking a column removes it from the board grid immediately
+- [x] `--board-columns` CSS variable updates to reflect visible count
       (responsive layout adapts)
-- [ ] Visibility state persists across page reloads via localStorage
-- [ ] Switching workspaces loads correct visibility state for that workspace
-- [ ] Adding a new column via settings makes it visible by default in the filter
-- [ ] Hidden columns still receive subscription updates (no data loss)
+- [x] Visibility state persists across page reloads via localStorage
+- [x] Switching workspaces loads correct visibility state for that workspace
+- [x] Adding a new column via settings makes it visible by default in the filter
+- [x] Hidden columns still receive subscription updates (no data loss)
 
 ### Phase 3
 
