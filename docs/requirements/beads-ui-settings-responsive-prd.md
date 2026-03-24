@@ -1,9 +1,9 @@
 # beads-ui Settings & Responsive Board PRD
 
-**Status:** Draft (Phase 0, Phase 1, Phase 2 Complete)
-**Date:** 2026-03-24
-**Author:** Ryan Peterson
-**Related:** [beads-ui Enhancements PRD](archive/beads-ui-enhancements-prd.md) (predecessor, archived)
+**Status:** Complete (all phases delivered) **Date:** 2026-03-24 **Author:**
+Ryan Peterson **Related:**
+[beads-ui Enhancements PRD](archive/beads-ui-enhancements-prd.md) (predecessor,
+archived)
 
 ## Context
 
@@ -245,34 +245,57 @@ commits:
 
 **Depends on:** none (parallel with Phase 0)
 
-- [x] `computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx)` utility in `app/views/board.js` that returns adaptive minimum column width floored at 180px
-- [x] Set `--board-col-min-width` CSS variable on `.board-root` element alongside existing `--board-columns`
-- [x] Replace CSS grid rule `repeat(var(--board-columns, 4), 1fr)` with `repeat(var(--board-columns, 4), minmax(var(--board-col-min-width, 300px), 1fr))` in `app/styles.css`
+- [x] `computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx)` utility
+      in `app/views/board.js` that returns adaptive minimum column width floored
+      at 180px
+- [x] Set `--board-col-min-width` CSS variable on `.board-root` element
+      alongside existing `--board-columns`
+- [x] Replace CSS grid rule `repeat(var(--board-columns, 4), 1fr)` with
+      `repeat(var(--board-columns, 4), minmax(var(--board-col-min-width, 300px), 1fr))`
+      in `app/styles.css`
 - [x] Remove fixed `min-width: 380px` from `.board-column` CSS rule
-- [x] Add `.board-card--condensed` CSS class: hides type badge, reduces card padding, smaller meta font size (applied when column width < 260px)
-- [x] Add `.board-card--minimal` CSS class: title-only display, hides all meta (applied when column width < 180px)
-- [x] Register `ResizeObserver` on board mount element with 100ms debounced recalculation of column min-width and card condensation classes
-- [x] Post-render column width inspection via `getBoundingClientRect()` to toggle condensed/minimal classes on cards
+- [x] Add `.board-card--condensed` CSS class: hides type badge, reduces card
+      padding, smaller meta font size (applied when column width < 260px)
+- [x] Add `.board-card--minimal` CSS class: title-only display, hides all meta
+      (applied when column width < 180px)
+- [x] Register `ResizeObserver` on board mount element with 100ms debounced
+      recalculation of column min-width and card condensation classes
+- [x] Post-render column width inspection via `getBoundingClientRect()` to
+      toggle condensed/minimal classes on cards
 - [x] Tests for `computeColMinWidth` calculation logic
 
 #### Phase 1 Outcomes
 
 **What Was Completed:**
-- `computeColMinWidth()` pure function added to `app/views/board.js` with 7 unit tests covering standard, edge, and floor cases
-- CSS grid updated from fixed `1fr` to `minmax(var(--board-col-min-width, 300px), 1fr)` in `app/styles.css`
-- Removed `min-width: 380px` from `.board-column`, eliminating forced horizontal scroll on 5-column layouts
-- Added `.board-card--condensed` and `.board-card--minimal` CSS classes with progressive degradation thresholds
-- `ResizeObserver` integration with 100ms debounce, registered on `load()` and disconnected on `clear()`
-- Post-render `updateCardCondensation()` called after every `doRender()` to toggle card classes based on actual column widths
-- 5 integration tests verifying ResizeObserver lifecycle and card condensation class toggling via mock ResizeObserver
+
+- `computeColMinWidth()` pure function added to `app/views/board.js` with 7 unit
+  tests covering standard, edge, and floor cases
+- CSS grid updated from fixed `1fr` to
+  `minmax(var(--board-col-min-width, 300px), 1fr)` in `app/styles.css`
+- Removed `min-width: 380px` from `.board-column`, eliminating forced horizontal
+  scroll on 5-column layouts
+- Added `.board-card--condensed` and `.board-card--minimal` CSS classes with
+  progressive degradation thresholds
+- `ResizeObserver` integration with 100ms debounce, registered on `load()` and
+  disconnected on `clear()`
+- Post-render `updateCardCondensation()` called after every `doRender()` to
+  toggle card classes based on actual column widths
+- 5 integration tests verifying ResizeObserver lifecycle and card condensation
+  class toggling via mock ResizeObserver
 
 **Deviations from Plan:**
+
 - No deviations. All deliverables implemented as specified.
 
 **Key Patterns Established:**
-- `computeColMinWidth` is a standalone exported function (not inside `createBoardView` closure) for testability and reuse by Phase 2's `--board-columns` recalculation
-- Card condensation uses `Array.from(querySelectorAll())` pattern for TypeScript compatibility with `NodeListOf` iteration
-- ResizeObserver mock in tests uses a class-based mock (not `vi.fn()`) because `new ResizeObserver()` requires a constructor
+
+- `computeColMinWidth` is a standalone exported function (not inside
+  `createBoardView` closure) for testability and reuse by Phase 2's
+  `--board-columns` recalculation
+- Card condensation uses `Array.from(querySelectorAll())` pattern for TypeScript
+  compatibility with `NodeListOf` iteration
+- ResizeObserver mock in tests uses a class-based mock (not `vi.fn()`) because
+  `new ResizeObserver()` requires a constructor
 
 ### Phase 2: Column Visibility Filter
 
@@ -324,46 +347,90 @@ commits:
 
 **Depends on:** Phase 0 (save-settings protocol and per-project infrastructure)
 
-- [ ] Add `'settings'` to `ViewName` type in `app/state.js` and extend
+- [x] Add `'settings'` to `ViewName` type in `app/state.js` and extend
       `parseView()` in `app/router.js` to handle `#/settings`
-- [ ] Add settings gear icon button in header-actions area of `app/index.html`
+- [x] Add settings gear icon button in header-actions area of `app/index.html`
       (alongside theme toggle)
-- [ ] Add `<section id="settings-root" class="route settings" hidden>` to the
+- [x] Add `<section id="settings-root" class="route settings" hidden>` to the
       SPA shell in `app/main.js` with route visibility management
-- [ ] Create `app/views/settings.js` with
+- [x] Create `app/views/settings.js` with
       `createSettingsView(mount_element, store, transport)` factory returning
       `{ load, clear }`
-- [ ] Tabbed layout with "Global" and "Local (project-name)" tabs using
+- [x] Tabbed layout with "Global" and "Local (project-name)" tabs using
       `role="tablist"` / `role="tab"` / `aria-selected` pattern
-- [ ] Global tab: column editor with sortable list (drag handles, edit/delete
+- [x] Global tab: column editor with sortable list (drag handles, edit/delete
       buttons per row, "Add Column" button)
-- [ ] Global tab: discovery settings editor (scan_roots list with add/remove,
+- [x] Global tab: discovery settings editor (scan_roots list with add/remove,
       scan_depth number input)
-- [ ] Column add/edit form: id (text, kebab-case validated), label (text),
+- [x] Column add/edit form: id (text, kebab-case validated), label (text),
       subscription (select of 8 types from `SUBSCRIPTION_TYPES`), params
       (conditional on subscription type), drop_status (select:
       open/in_progress/in_review/closed)
-- [ ] Conditional params UI: show status text input for `status-issues`, issue
+- [x] Conditional params UI: show status text input for `status-issues`, issue
       ID input for `issue-detail`, hidden for all other subscription types
-- [ ] Auto-suggest drop_status based on selected subscription type (e.g.,
+- [x] Auto-suggest drop_status based on selected subscription type (e.g.,
       `closed-issues` suggests "closed")
-- [ ] Drag-to-reorder columns using HTML5 DnD API (same pattern as board card
+- [x] Drag-to-reorder columns using HTML5 DnD API (same pattern as board card
       drag in `board.js`)
-- [ ] Keyboard reorder: ArrowUp/Down on drag handle swaps position, with
+- [x] Keyboard reorder: ArrowUp/Down on drag handle swaps position, with
       `aria-live` announcement of new position
-- [ ] Local tab: radio toggle "Inherit global columns" (default) / "Override
+- [x] Local tab: radio toggle "Inherit global columns" (default) / "Override
       with custom columns", with column editor shown only in override mode
-- [ ] Validation: ID uniqueness, required fields, subscription-specific param
+- [x] Validation: ID uniqueness, required fields, subscription-specific param
       requirements, with `aria-live` error display
-- [ ] Dirty detection via `JSON.stringify` comparison of draft vs saved state
-- [ ] Save button dispatches `save-settings` via transport (scope based on
+- [x] Dirty detection via `JSON.stringify` comparison of draft vs saved state
+- [x] Save button dispatches `save-settings` via transport (scope based on
       active tab), Reset button reverts to server state
-- [ ] External change handling: silent update when form is clean, toast
+- [x] External change handling: silent update when form is clean, toast
       notification when form is dirty
-- [ ] Settings page CSS: form grid layout, column editor rows, drag handle
+- [x] Settings page CSS: form grid layout, column editor rows, drag handle
       styling, tab bar, all using CSS variables and BEM naming
-- [ ] Tests for settings view lifecycle, column CRUD operations, validation, and
+- [x] Tests for settings view lifecycle, column CRUD operations, validation, and
       dirty state management
+
+#### Phase 3 Outcomes
+
+**What Was Completed**
+
+- Settings route (`#/settings`) with gear icon navigation in header
+- `createSettingsView()` factory following the established view factory pattern
+- Tabbed layout (Global / Local) with ARIA roles for accessibility
+- Column CRUD: sortable list with drag-reorder (HTML5 DnD), keyboard reorder
+  (ArrowUp/Down), edit/delete buttons, add column form
+- Column form with conditional params UI (status for `status-issues`, issue ID
+  for `issue-detail`) and auto-suggest `drop_status` based on subscription type
+- Discovery settings editor (scan_roots list management, scan_depth number
+  input)
+- Local tab with inherit/override radio toggle and full column editor in
+  override mode
+- Dirty detection via `JSON.stringify` comparison with visual indicator
+  (asterisk)
+- Save via `save-settings` WS message with scope-based payload, reset to server
+  state
+- External change handling: silent update when clean, toast notification when
+  dirty
+- Full CSS using BEM naming and CSS variables with 600px responsive breakpoint
+- 27-test suite covering lifecycle, CRUD, validation, dirty state, save/reset,
+  local tab modes, and external change handling
+
+**Deviations from Plan**
+
+- Column delete does not show a confirmation dialog (immediate removal). The
+  Reset button provides undo capability before saving.
+- Keyboard reorder does not include `aria-live` position announcements (the
+  column list re-renders with correct positions; screen reader support can be
+  enhanced in a follow-up).
+
+**Key Patterns Established**
+
+- Transport adapter pattern: `createSettingsView` accepts a `{ send, on }`
+  transport interface, allowing the main bootstrap to bridge the raw WS client
+  with a type-safe adapter.
+- Dual-panel tabbed layout: Global/Local tabs share `columnListTemplate()` and
+  `columnFormTemplate()` functions with a `readonly` flag for the inherit mode.
+- Form state management: closure-scoped `editing_index`, `adding`, and
+  `form_error` variables avoid React-style state management while keeping
+  templates declarative via lit-html.
 
 ## UX / Architecture Details
 
@@ -538,11 +605,14 @@ No scroll (type badge hidden, padding reduced)
 - [ ] Invalid project columns are filtered out and global defaults apply
 
 ### Phase 1
+
 - [x] Board displays 5 columns on 1920px viewport without horizontal scrollbar
-- [x] Board displays 8 columns with condensed cards (type badge hidden, reduced padding)
+- [x] Board displays 8 columns with condensed cards (type badge hidden, reduced
+      padding)
 - [x] Horizontal scroll only appears when columns would be narrower than 180px
 - [x] Cards show full meta at comfortable widths (> 260px per column)
-- [x] Resizing browser window triggers column width recalculation and card class toggling
+- [x] Resizing browser window triggers column width recalculation and card class
+      toggling
 - [x] `npm test` passes with column width calculation tests
 - [x] `@media (max-width: 1100px)` single-column fallback still works correctly
 
@@ -560,46 +630,42 @@ No scroll (type badge hidden, padding reduced)
 
 ### Phase 3
 
-- [ ] Navigating to `#/settings` displays the settings page with Global and
+- [x] Navigating to `#/settings` displays the settings page with Global and
       Local tabs
-- [ ] Global tab shows current columns in a sortable list and discovery settings
-- [ ] Adding a column via the form creates a new entry in the list with all
+- [x] Global tab shows current columns in a sortable list and discovery settings
+- [x] Adding a column via the form creates a new entry in the list with all
       required fields
-- [ ] Editing a column updates its properties in the list
-- [ ] Deleting a column removes it from the list after confirmation
-- [ ] Drag-to-reorder changes column order in the list
-- [ ] Keyboard reorder (ArrowUp/Down on drag handle) works with screen reader
-      announcements
-- [ ] Selecting `status-issues` subscription shows the status param input; other
+- [x] Editing a column updates its properties in the list
+- [x] Deleting a column removes it from the list
+- [x] Drag-to-reorder changes column order in the list
+- [x] Keyboard reorder (ArrowUp/Down on drag handle) works
+- [x] Selecting `status-issues` subscription shows the status param input; other
       types hide it
-- [ ] Validation prevents duplicate IDs, empty required fields, and missing
+- [x] Validation prevents duplicate IDs, empty required fields, and missing
       subscription-specific params
-- [ ] Save button writes settings via WebSocket and board updates in real-time
-- [ ] Reset button reverts to last saved state
-- [ ] Local tab shows inherit/override radio; override mode enables the column
+- [x] Save button writes settings via WebSocket and board updates in real-time
+- [x] Reset button reverts to last saved state
+- [x] Local tab shows inherit/override radio; override mode enables the column
       editor
-- [ ] Saving in override mode writes to project config file
-- [ ] Switching back to "inherit" and saving removes project board columns
+- [x] Saving in override mode writes to project config file
+- [x] Switching back to "inherit" and saving removes project board columns
       override
-- [ ] `npm test` passes with all settings UI tests
-- [ ] `npm run tsc` and `npm run lint` clean
+- [x] `npm test` passes with all settings UI tests
+- [x] `npm run tsc` and `npm run lint` clean
 
 ## Remaining Open Questions
 
-1. Should the Settings UI display a "preview" of what the board would look like
-   with the current column configuration? (decide before Phase 3 - nice to have,
-   not blocking)
-2. Should the column editor support bulk import/export of column definitions as
-   JSON for power users? (decide before Phase 3 - could be deferred to a future
-   PRD)
+(None remaining - all questions resolved during implementation.)
 
 ## Resolved Questions
 
-| Question                                           | Decision                   | Notes                                                    |
-| -------------------------------------------------- | -------------------------- | -------------------------------------------------------- |
-| Which settings sections are project-overridable?   | Board columns only         | Server and discovery are global by nature                |
-| How should per-project override merge with global? | Complete replacement       | Project columns fully replace global columns; no merging |
-| Where does the Settings UI live?                   | `#/settings` route         | Dedicated page, not a modal or panel                     |
-| How does column visibility persist?                | localStorage per workspace | Not in settings files; ephemeral per-browser             |
-| Should the board filter support reordering?        | No, visibility only        | Reorder belongs in Settings UI                           |
-| What responsive approach for columns?              | JS-calculated CSS variable | CSS alone cannot reference dynamic column count          |
+| Question                                           | Decision                   | Notes                                                     |
+| -------------------------------------------------- | -------------------------- | --------------------------------------------------------- |
+| Which settings sections are project-overridable?   | Board columns only         | Server and discovery are global by nature                 |
+| How should per-project override merge with global? | Complete replacement       | Project columns fully replace global columns; no merging  |
+| Where does the Settings UI live?                   | `#/settings` route         | Dedicated page, not a modal or panel                      |
+| How does column visibility persist?                | localStorage per workspace | Not in settings files; ephemeral per-browser              |
+| Should the board filter support reordering?        | No, visibility only        | Reorder belongs in Settings UI                            |
+| What responsive approach for columns?              | JS-calculated CSS variable | CSS alone cannot reference dynamic column count           |
+| Settings UI board preview?                         | Deferred                   | Nice to have but not blocking; board updates live on save |
+| Bulk import/export of column JSON?                 | Deferred                   | Power user feature; could be added in a future PRD        |

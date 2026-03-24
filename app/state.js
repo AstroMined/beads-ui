@@ -12,7 +12,7 @@ import { debug } from './utils/logging.js';
  */
 
 /**
- * @typedef {'issues'|'epics'|'board'} ViewName
+ * @typedef {'issues'|'epics'|'board'|'settings'} ViewName
  */
 
 /**
