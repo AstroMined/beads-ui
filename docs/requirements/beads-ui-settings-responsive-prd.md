@@ -1,7 +1,7 @@
 # beads-ui Settings & Responsive Board PRD
 
 **Status:** Draft
-**Date:** 2026-03-23
+**Date:** 2026-03-24
 **Author:** Ryan Peterson
 **Related:** [beads-ui Enhancements PRD](archive/beads-ui-enhancements-prd.md) (predecessor, archived)
 
@@ -124,15 +124,34 @@ The immediate motivation is reducing daily friction: eliminating horizontal scro
 ### Phase 1: Responsive Kanban Columns
 **Depends on:** none (parallel with Phase 0)
 
-- [ ] `computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx)` utility in `app/views/board.js` that returns adaptive minimum column width floored at 180px
-- [ ] Set `--board-col-min-width` CSS variable on `.board-root` element alongside existing `--board-columns`
-- [ ] Replace CSS grid rule `repeat(var(--board-columns, 4), 1fr)` with `repeat(var(--board-columns, 4), minmax(var(--board-col-min-width, 300px), 1fr))` in `app/styles.css`
-- [ ] Remove fixed `min-width: 380px` from `.board-column` CSS rule
-- [ ] Add `.board-card--condensed` CSS class: hides type badge, reduces card padding, smaller meta font size (applied when column width < 260px)
-- [ ] Add `.board-card--minimal` CSS class: title-only display, hides all meta (applied when column width < 180px)
-- [ ] Register `ResizeObserver` on board mount element with 100ms debounced recalculation of column min-width and card condensation classes
-- [ ] Post-render column width inspection via `getBoundingClientRect()` to toggle condensed/minimal classes on cards
-- [ ] Tests for `computeColMinWidth` calculation logic
+- [x] `computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx)` utility in `app/views/board.js` that returns adaptive minimum column width floored at 180px
+- [x] Set `--board-col-min-width` CSS variable on `.board-root` element alongside existing `--board-columns`
+- [x] Replace CSS grid rule `repeat(var(--board-columns, 4), 1fr)` with `repeat(var(--board-columns, 4), minmax(var(--board-col-min-width, 300px), 1fr))` in `app/styles.css`
+- [x] Remove fixed `min-width: 380px` from `.board-column` CSS rule
+- [x] Add `.board-card--condensed` CSS class: hides type badge, reduces card padding, smaller meta font size (applied when column width < 260px)
+- [x] Add `.board-card--minimal` CSS class: title-only display, hides all meta (applied when column width < 180px)
+- [x] Register `ResizeObserver` on board mount element with 100ms debounced recalculation of column min-width and card condensation classes
+- [x] Post-render column width inspection via `getBoundingClientRect()` to toggle condensed/minimal classes on cards
+- [x] Tests for `computeColMinWidth` calculation logic
+
+#### Phase 1 Outcomes
+
+**What Was Completed:**
+- `computeColMinWidth()` pure function added to `app/views/board.js` with 7 unit tests covering standard, edge, and floor cases
+- CSS grid updated from fixed `1fr` to `minmax(var(--board-col-min-width, 300px), 1fr)` in `app/styles.css`
+- Removed `min-width: 380px` from `.board-column`, eliminating forced horizontal scroll on 5-column layouts
+- Added `.board-card--condensed` and `.board-card--minimal` CSS classes with progressive degradation thresholds
+- `ResizeObserver` integration with 100ms debounce, registered on `load()` and disconnected on `clear()`
+- Post-render `updateCardCondensation()` called after every `doRender()` to toggle card classes based on actual column widths
+- 5 integration tests verifying ResizeObserver lifecycle and card condensation class toggling via mock ResizeObserver
+
+**Deviations from Plan:**
+- No deviations. All deliverables implemented as specified.
+
+**Key Patterns Established:**
+- `computeColMinWidth` is a standalone exported function (not inside `createBoardView` closure) for testability and reuse by Phase 2's `--board-columns` recalculation
+- Card condensation uses `Array.from(querySelectorAll())` pattern for TypeScript compatibility with `NodeListOf` iteration
+- ResizeObserver mock in tests uses a class-based mock (not `vi.fn()`) because `new ResizeObserver()` requires a constructor
 
 ### Phase 2: Column Visibility Filter
 **Depends on:** Phase 0 (effective settings flow for column definitions)
@@ -337,13 +356,13 @@ No scroll (type badge hidden, padding reduced)
 - [ ] Invalid project columns are filtered out and global defaults apply
 
 ### Phase 1
-- [ ] Board displays 5 columns on 1920px viewport without horizontal scrollbar
-- [ ] Board displays 8 columns with condensed cards (type badge hidden, reduced padding)
-- [ ] Horizontal scroll only appears when columns would be narrower than 180px
-- [ ] Cards show full meta at comfortable widths (> 260px per column)
-- [ ] Resizing browser window triggers column width recalculation and card class toggling
-- [ ] `npm test` passes with column width calculation tests
-- [ ] `@media (max-width: 1100px)` single-column fallback still works correctly
+- [x] Board displays 5 columns on 1920px viewport without horizontal scrollbar
+- [x] Board displays 8 columns with condensed cards (type badge hidden, reduced padding)
+- [x] Horizontal scroll only appears when columns would be narrower than 180px
+- [x] Cards show full meta at comfortable widths (> 260px per column)
+- [x] Resizing browser window triggers column width recalculation and card class toggling
+- [x] `npm test` passes with column width calculation tests
+- [x] `@media (max-width: 1100px)` single-column fallback still works correctly
 
 ### Phase 2
 - [ ] Column visibility dropdown appears in board filter bar with all columns checked by default
