@@ -8,6 +8,26 @@ import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
 
 /**
+ * Calculate the minimum column width for a responsive board grid.
+ *
+ * @param {number} viewportWidth - Available viewport or container width in px.
+ * @param {number} columnCount - Number of visible columns.
+ * @param {number} gapPx - Gap between columns in px (CSS --space-8 = 16).
+ * @param {number} paddingPx - Horizontal padding on the board root in px (CSS --space-6 = 12).
+ * @returns {number} Minimum column width in px, floored at 180.
+ */
+export function computeColMinWidth(viewportWidth, columnCount, gapPx, paddingPx) {
+  if (columnCount <= 0) {
+    return viewportWidth;
+  }
+  const available = viewportWidth - (columnCount - 1) * gapPx - 2 * paddingPx;
+  if (columnCount === 1) {
+    return Math.max(180, Math.floor(available));
+  }
+  return Math.max(180, Math.floor(available / columnCount));
+}
+
+/**
  * @typedef {{
  *   id: string,
  *   title?: string,
