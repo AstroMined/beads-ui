@@ -137,3 +137,29 @@ describe('server/protocol', () => {
     expect(isRequest({ id: '1', type: 'subscribe-list' })).toBe(true);
   });
 });
+
+describe('settings message types', () => {
+  test('save-settings is in MESSAGE_TYPES', () => {
+    expect(MESSAGE_TYPES).toContain('save-settings');
+  });
+
+  test('get-project-settings is in MESSAGE_TYPES', () => {
+    expect(MESSAGE_TYPES).toContain('get-project-settings');
+  });
+
+  test('save-settings-result is in MESSAGE_TYPES', () => {
+    expect(MESSAGE_TYPES).toContain('save-settings-result');
+  });
+
+  test('isMessageType returns true for save-settings', () => {
+    expect(isMessageType('save-settings')).toBe(true);
+  });
+
+  test('isMessageType returns true for get-project-settings', () => {
+    expect(isMessageType('get-project-settings')).toBe(true);
+  });
+
+  test('isMessageType returns true for save-settings-result', () => {
+    expect(isMessageType('save-settings-result')).toBe(true);
+  });
+});
