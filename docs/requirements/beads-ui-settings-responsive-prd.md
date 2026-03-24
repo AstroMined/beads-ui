@@ -1,6 +1,6 @@
 # beads-ui Settings & Responsive Board PRD
 
-**Status:** Draft
+**Status:** Draft (Phase 0 Complete)
 **Date:** 2026-03-23
 **Author:** Ryan Peterson
 **Related:** [beads-ui Enhancements PRD](archive/beads-ui-enhancements-prd.md) (predecessor, archived)
@@ -110,16 +110,39 @@ The immediate motivation is reducing daily friction: eliminating horizontal scro
 ### Phase 0: Per-Project Settings Infrastructure
 **Depends on:** none
 
-- [ ] `loadProjectSettings(workspace_root)` function in `server/settings.js` that reads `<workspace>/.beads/config.json` and validates `board.columns` if present
-- [ ] `getEffectiveSettings(workspace_root)` function that merges global settings with project overrides (project `board.columns` replaces global when valid)
-- [ ] `watchProjectSettings(workspace_root, onChange)` function with same debounce pattern as `watchSettings()`, returning `{ close }` handle
-- [ ] Update `get-settings` handler in `server/ws.js` to return effective (merged) settings for the active workspace
-- [ ] New `get-project-settings` message type that returns raw project overrides (not merged), enabling the Settings UI to distinguish "inheriting" from "overriding"
-- [ ] New `save-settings` message type accepting `{ scope: 'global' | 'project', settings: Partial<SettingsObject> }`, with server-side validation and atomic file write
-- [ ] Wire project settings watcher in `server/index.js` with lifecycle management: close old watcher and open new one on workspace switch
-- [ ] Broadcast effective settings on either global or project config file change
-- [ ] Update `app/protocol.js` with new message types (`save-settings`, `get-project-settings`)
-- [ ] Tests for project settings loading, merging, watching, saving, and workspace switch lifecycle
+- [x] `loadProjectSettings(workspace_root)` function in `server/settings.js` that reads `<workspace>/.beads/config.json` and validates `board.columns` if present
+- [x] `getEffectiveSettings(workspace_root)` function that merges global settings with project overrides (project `board.columns` replaces global when valid)
+- [x] `watchProjectSettings(workspace_root, onChange)` function with same debounce pattern as `watchSettings()`, returning `{ close }` handle
+- [x] Update `get-settings` handler in `server/ws.js` to return effective (merged) settings for the active workspace
+- [x] New `get-project-settings` message type that returns raw project overrides (not merged), enabling the Settings UI to distinguish "inheriting" from "overriding"
+- [x] New `save-settings` message type accepting `{ scope: 'global' | 'project', settings: Partial<SettingsObject> }`, with server-side validation and atomic file write
+- [x] Wire project settings watcher in `server/index.js` with lifecycle management: close old watcher and open new one on workspace switch
+- [x] Broadcast effective settings on either global or project config file change
+- [x] Update `app/protocol.js` with new message types (`save-settings`, `get-project-settings`)
+- [x] Tests for project settings loading, merging, watching, saving, and workspace switch lifecycle
+
+#### Phase 0 Outcomes
+
+**What Was Completed:**
+All 10 Phase 0 deliverables were implemented across 6 commits:
+
+1. **Protocol layer** (`app/protocol.js`): Added `save-settings`, `get-project-settings`, and `save-settings-result` message types with 6 new tests.
+2. **Settings engine** (`server/settings.js`): Added `loadProjectSettings()`, `getEffectiveSettings()`, `watchProjectSettings()`, and exported `validateColumnDef()`. 14 new tests covering loading, merging, and watching.
+3. **WS handlers** (`server/ws.js`): Updated `get-settings` to return effective settings when a workspace is active. Added `get-project-settings` and `save-settings` handlers with scope validation and atomic file writes. 8 new tests in `server/ws.settings.test.js`.
+4. **Server bootstrap** (`server/index.js`): Wired project settings watcher alongside global watcher. Both watchers broadcast effective (merged) settings on change. Watcher lifecycle managed on workspace switch.
+5. **Client integration** (`app/main.js`): No client changes needed; the existing `settings-changed` handler and board rebuild logic already processes whatever columns the server sends. Added 2 integration tests confirming project-override and fallback behavior.
+6. **PRD documentation**: This section.
+
+**Deviations from Plan:**
+- Added `save-settings-result` as a third message type (not in original spec) to provide explicit success/error responses to save operations.
+- `validateColumnDef` was changed from a private function to an export in `server/settings.js` so the WS handler can reuse it for save validation.
+- No changes to `app/main.js` were needed for client integration; the existing architecture already handled effective settings transparently.
+
+**Key Patterns Established:**
+- **Effective settings merge**: Project `board.columns` atomically replaces global columns when valid; all other settings pass through from global.
+- **Atomic file writes**: Write to temp file then `fs.renameSync` for both global and project config saves.
+- **File watcher pattern**: `fs.watch` on `.beads/` directory with 500ms debounce, JSON.stringify comparison to detect real changes, returns `{ close }` handle.
+- **ESM test isolation**: `vi.resetModules()` + `freshImport()` pattern for modules with persistent state (e.g., `CURRENT_WORKSPACE` in ws.js).
 
 ### Phase 1: Responsive Kanban Columns
 **Depends on:** none (parallel with Phase 0)
