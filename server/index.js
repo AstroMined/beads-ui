@@ -151,14 +151,11 @@ const settings_watcher = watchSettings(async () => {
 });
 
 // Watch project-level settings for changes and broadcast effective settings
-let project_settings_watcher = watchProjectSettings(
-  config.root_dir,
-  () => {
-    log('project settings changed, broadcasting effective settings to clients');
-    const effective = getEffectiveSettings(config.root_dir);
-    broadcastSettingsChanged(effective);
-  }
-);
+let project_settings_watcher = watchProjectSettings(config.root_dir, () => {
+  log('project settings changed, broadcasting effective settings to clients');
+  const effective = getEffectiveSettings(config.root_dir);
+  broadcastSettingsChanged(effective);
+});
 
 // Watch the global registry for workspace changes (e.g., when user starts
 // bd daemon in a different project). This enables automatic workspace switching.

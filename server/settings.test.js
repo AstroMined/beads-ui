@@ -657,8 +657,7 @@ describe('settings', () => {
       const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
       vi.mocked(fsmod.existsSync).mockImplementation(
         (p) =>
-          String(p) === '/mock-workspace/.beads' ||
-          (orig ? orig(p) : false)
+          String(p) === '/mock-workspace/.beads' || (orig ? orig(p) : false)
       );
 
       const { watchProjectSettings } = await freshImport();
@@ -714,8 +713,7 @@ describe('settings', () => {
       const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
       vi.mocked(fsmod.existsSync).mockImplementation(
         (p) =>
-          String(p) === '/mock-workspace/.beads' ||
-          (orig ? orig(p) : false)
+          String(p) === '/mock-workspace/.beads' || (orig ? orig(p) : false)
       );
 
       const { watchProjectSettings } = await freshImport();
@@ -774,8 +772,7 @@ describe('settings', () => {
       const orig = vi.mocked(fsmod.existsSync).getMockImplementation();
       vi.mocked(fsmod.existsSync).mockImplementation(
         (p) =>
-          String(p) === '/mock-workspace/.beads' ||
-          (orig ? orig(p) : false)
+          String(p) === '/mock-workspace/.beads' || (orig ? orig(p) : false)
       );
 
       const { watchProjectSettings } = await freshImport();

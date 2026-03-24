@@ -35,7 +35,7 @@ vi.mock('node:fs', () => {
   const existsSync = vi.fn(
     (p) => file_contents.has(String(p)) || String(p) === '/mock-home/.beads'
   );
-  const watch = vi.fn((_dir, _opts, _cb) => ({ close: vi.fn() }));
+  const watch = vi.fn(() => ({ close: vi.fn() }));
   const mkdirSync = vi.fn();
   const writeFileSync = vi.fn((p, content) => {
     file_contents.set(String(p), String(content));
@@ -112,6 +112,7 @@ async function freshWsImport() {
 
 /**
  * Set up a workspace via set-workspace handler.
+ *
  * @param {typeof import('./ws.js').handleMessage} handleMessage
  * @param {ReturnType<typeof makeStubSocket>} ws
  * @param {string} workspace_path
