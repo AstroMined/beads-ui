@@ -141,6 +141,20 @@ export function createBoardView(options) {
   const selectors = issueStores ? createListSelectors(issueStores) : null;
 
   /**
+   * Column visibility state: maps column id to boolean (visible or not).
+   * All columns default to visible.
+   *
+   * @type {Record<string, boolean>}
+   */
+  let column_visibility = {};
+  for (const col of col_defs) {
+    column_visibility[col.id] = true;
+  }
+
+  /** Whether the columns dropdown is currently open */
+  let columns_dropdown_open = false;
+
+  /**
    * Closed column filter mode.
    * 'today' → items with closed_at since local day start
    * '3' → last 3 days; '7' → last 7 days
@@ -214,6 +228,65 @@ export function createBoardView(options) {
   }
 
   /**
+   * Get the list of visible columns based on column_visibility state.
+   *
+   * @returns {ColumnDef[]}
+   */
+  function getVisibleColumns() {
+    return col_defs.filter((c) => column_visibility[c.id] !== false);
+  }
+
+  /**
+   * Toggle visibility for a column and re-render.
+   *
+   * @param {string} col_id
+   */
+  function toggleColumnVisibility(col_id) {
+    column_visibility[col_id] = !column_visibility[col_id];
+    doRender();
+  }
+
+  /**
+   * Render the columns visibility dropdown template.
+   */
+  function columnVisibilityTemplate() {
+    const visible_count = col_defs.filter(
+      (c) => column_visibility[c.id] !== false
+    ).length;
+    const total_count = col_defs.length;
+    return html`
+      <div
+        class="filter-dropdown ${columns_dropdown_open ? 'is-open' : ''}"
+      >
+        <button
+          class="filter-dropdown__trigger"
+          @click=${() => {
+            columns_dropdown_open = !columns_dropdown_open;
+            doRender();
+          }}
+        >
+          Columns ${visible_count}/${total_count}
+          <span class="filter-dropdown__arrow">▾</span>
+        </button>
+        <div class="filter-dropdown__menu">
+          ${col_defs.map(
+            (col) => html`
+              <label class="filter-dropdown__option">
+                <input
+                  type="checkbox"
+                  .checked=${column_visibility[col.id] !== false}
+                  @change=${() => toggleColumnVisibility(col.id)}
+                />
+                ${col.label}
+              </label>
+            `
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
    * Render the filter bar with three select dropdowns above the board grid.
    *
    * @param {{ parents: string[], assignees: string[], types: string[] }} filter_options
@@ -276,6 +349,7 @@ export function createBoardView(options) {
               </option>`
           )}
         </select>
+        ${columnVisibilityTemplate()}
       </div>
     `;
   }
@@ -300,13 +374,14 @@ export function createBoardView(options) {
   }
 
   function template() {
+    const visible_cols = getVisibleColumns();
     return html`
       ${filterBarTemplate(last_filter_options)}
       <div
         class="panel__body board-root"
-        style="--board-columns: ${col_defs.length}; --board-col-min-width: ${computeColMinWidth(mount_element.getBoundingClientRect?.()?.width || 1920, col_defs.length, 16, 12)}px"
+        style="--board-columns: ${visible_cols.length}; --board-col-min-width: ${computeColMinWidth(mount_element.getBoundingClientRect?.()?.width || 1920, visible_cols.length, 16, 12)}px"
       >
-        ${col_defs.map((col) =>
+        ${visible_cols.map((col) =>
           columnTemplate(col, column_data.get(col.id) || [])
         )}
       </div>
@@ -529,7 +604,7 @@ export function createBoardView(options) {
           return;
         }
         const root_width = board_root.getBoundingClientRect().width;
-        const col_count = col_defs.length;
+        const col_count = getVisibleColumns().length;
         const min_width = computeColMinWidth(root_width, col_count, 16, 12);
         board_root.style.setProperty(
           '--board-col-min-width',
@@ -792,6 +867,19 @@ export function createBoardView(options) {
   mount_element.addEventListener('dragover', handleDragover);
   mount_element.addEventListener('dragleave', handleDragleave);
   mount_element.addEventListener('drop', handleDrop);
+
+  // Click outside to close columns dropdown
+  /** @param {MouseEvent} e */
+  const clickOutsideHandler = (e) => {
+    const target = /** @type {HTMLElement|null} */ (e.target);
+    if (target && !target.closest('.filter-dropdown')) {
+      if (columns_dropdown_open) {
+        columns_dropdown_open = false;
+        doRender();
+      }
+    }
+  };
+  document.addEventListener('click', clickOutsideHandler);
 
   /**
    * @param {HTMLElement} from
@@ -1109,6 +1197,7 @@ export function createBoardView(options) {
       mount_element.removeEventListener('dragover', handleDragover);
       mount_element.removeEventListener('dragleave', handleDragleave);
       mount_element.removeEventListener('drop', handleDrop);
+      document.removeEventListener('click', clickOutsideHandler);
       // Disconnect ResizeObserver
       if (resize_observer) {
         resize_observer.disconnect();
