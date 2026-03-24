@@ -168,12 +168,152 @@ export function watchSettings(onChange, options = {}) {
 }
 
 /**
+ * Load project-specific settings from <workspace_root>/.beads/config.json.
+ * Returns validated SettingsObject with only board.columns populated, or null
+ * if file is missing or invalid.
+ *
+ * @param {string} workspace_root
+ * @returns {SettingsObject | null}
+ */
+export function loadProjectSettings(workspace_root) {
+  const project_path = path.join(workspace_root, '.beads', 'config.json');
+  try {
+    const raw = fs.readFileSync(project_path, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !Array.isArray(/** @type {any} */ (parsed.board)?.columns)
+    ) {
+      return null;
+    }
+    const raw_columns = /** @type {unknown[]} */ (
+      /** @type {any} */ (parsed.board).columns
+    );
+    const valid = raw_columns.filter((col) => {
+      if (!validateColumnDef(col)) {
+        log('rejected invalid project column definition: %o', col);
+        return false;
+      }
+      return true;
+    });
+    if (valid.length === 0) {
+      return null;
+    }
+    return {
+      server: DEFAULT_SETTINGS.server,
+      board: { columns: /** @type {ColumnDefinition[]} */ (valid) },
+      discovery: DEFAULT_SETTINGS.discovery
+    };
+  } catch (err) {
+    if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
+      log(
+        'warning: failed to parse project settings file %s: %o',
+        project_path,
+        err
+      );
+    }
+    return null;
+  }
+}
+
+/**
+ * Get effective settings by merging project overrides onto global settings.
+ * Project board.columns replace global board.columns entirely (atomic replacement).
+ *
+ * @param {string} workspace_root
+ * @returns {SettingsObject}
+ */
+export function getEffectiveSettings(workspace_root) {
+  const global_settings = getSettings();
+  const project_settings = loadProjectSettings(workspace_root);
+  if (project_settings && project_settings.board.columns.length > 0) {
+    global_settings.board.columns = project_settings.board.columns;
+  }
+  return structuredClone(global_settings);
+}
+
+/**
+ * Watch <workspace_root>/.beads/ directory for changes and invoke callback
+ * with new project settings. 500ms debounce, same pattern as watchSettings().
+ *
+ * @param {string} workspace_root
+ * @param {(settings: SettingsObject | null) => void} onChange
+ * @param {{ debounce_ms?: number }} [options]
+ * @returns {{ close: () => void }}
+ */
+export function watchProjectSettings(workspace_root, onChange, options = {}) {
+  const debounce_ms = options.debounce_ms ?? 500;
+  const watch_dir = path.join(workspace_root, '.beads');
+  const watch_file = 'config.json';
+
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  /** @type {fs.FSWatcher | undefined} */
+  let watcher;
+  let previous_json = JSON.stringify(loadProjectSettings(workspace_root));
+
+  const schedule = () => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      try {
+        const new_settings = loadProjectSettings(workspace_root);
+        const new_json = JSON.stringify(new_settings);
+        if (new_json !== previous_json) {
+          previous_json = new_json;
+          onChange(new_settings);
+        }
+      } catch (err) {
+        log('error reading project settings on change: %o', err);
+      }
+    }, debounce_ms);
+    timer.unref?.();
+  };
+
+  try {
+    if (!fs.existsSync(watch_dir)) {
+      log('project settings directory does not exist: %s', watch_dir);
+      return { close() {} };
+    }
+
+    watcher = fs.watch(
+      watch_dir,
+      { persistent: true },
+      (event_type, filename) => {
+        if (filename && String(filename) !== watch_file) {
+          return;
+        }
+        if (event_type === 'change' || event_type === 'rename') {
+          log('project settings %s %s', event_type, filename || '');
+          schedule();
+        }
+      }
+    );
+  } catch (err) {
+    log('unable to watch project settings directory: %o', err);
+    return { close() {} };
+  }
+
+  return {
+    close() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      watcher?.close();
+    }
+  };
+}
+
+/**
  * Validate that a column definition has all required fields with correct types.
  *
  * @param {unknown} col
  * @returns {col is ColumnDefinition}
  */
-function validateColumnDef(col) {
+export function validateColumnDef(col) {
   if (!col || typeof col !== 'object') {
     return false;
   }
