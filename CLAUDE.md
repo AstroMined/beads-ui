@@ -38,12 +38,13 @@ When fixing bugs or adding features to contribute back to `mantoni/beads-ui`:
    ```
 4. Commit and push the clean branch, then PR to `mantoni/beads-ui`
 
-### Files That Must NEVER Go to Main or Upstream
+### Tracked files (committed to git)
 
-- `.beads/PRIME.md` (our workflow config)
-- `CLAUDE.md` (this file)
-- Any files in `.beads/` that we create
-- `AGENTS.md` (if we regenerate one)
+- `CLAUDE.md` - project instructions
+- `.claude/` - project configuration (settings, commands)
+- `.beads/` - issue tracker (general-purpose, not AI-specific)
+
+These files are tracked on the `develop` branch. The Main/Upstream protection still applies to the fork's branch strategy: do not push our `develop`-specific content to `main` when preparing upstream PRs. When cherry-picking code changes for upstream PRs, exclude these workflow files.
 
 The author's original `.beads/`, `.github/`, and `AGENTS.md` remain on `main` to avoid conflicts with upstream.
 
@@ -55,6 +56,19 @@ The author's original `.beads/`, `.github/`, and `AGENTS.md` remain on `main` to
 - **Tests**: vitest
 - **Lint**: eslint + prettier
 - **Key deps**: express, lit-html, marked, ws, dompurify
+
+## Issue Tracking (Beads)
+
+This project uses [Beads](https://github.com/steveyegge/beads) (`bd` CLI) for issue tracking.
+Persistence uses the embedded Dolt backend with auto-commit enabled. See `.beads/PRIME.md` for
+full workflow details.
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --status in_progress  # Claim work
+bd close <id>         # Complete work
+```
 
 ## Validation Commands
 

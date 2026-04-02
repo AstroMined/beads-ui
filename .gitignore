@@ -8,5 +8,15 @@ app/main.bundle.js.map
 .dolt/
 *.db
 
-# Pipeline artifacts
-.claude/
+# Claude Code ephemeral directories
+.claude/staging/
+.claude/worktrees/
+
+# Beads embedded Dolt database
+.beads/embeddeddolt/
+
+# Beads export state
+.beads/export-state/
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
