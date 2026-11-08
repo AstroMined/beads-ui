@@ -34,10 +34,43 @@ describe('views/nav', () => {
       /** @type {any} */ (router)
     );
     const links = mount.querySelectorAll('a.tab');
-    expect(links.length).toBe(3);
+    expect(links.length).toBe(4);
     links[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(router.gotoView).toHaveBeenCalledWith('epics');
     links[2].dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(router.gotoView).toHaveBeenCalledWith('board');
+  });
+
+  test('renders the Graph tab after Board and routes to it', () => {
+    const { mount, store, router } = setup();
+    createTopNav(
+      mount,
+      /** @type {any} */ (store),
+      /** @type {any} */ (router)
+    );
+    const links = Array.from(mount.querySelectorAll('a.tab'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual([
+      'Issues',
+      'Epics',
+      'Board',
+      'Graph'
+    ]);
+    const graph = links[3];
+    expect(graph.getAttribute('href')).toBe('#/graph');
+    graph.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(router.gotoView).toHaveBeenCalledWith('graph');
+  });
+
+  test('marks the Graph tab active on the graph view', () => {
+    const { mount, store, router } = setup();
+    store.set({ view: 'graph' });
+    createTopNav(
+      mount,
+      /** @type {any} */ (store),
+      /** @type {any} */ (router)
+    );
+    const active = mount.querySelectorAll('a.tab.active');
+    expect(active.length).toBe(1);
+    expect(active[0].textContent?.trim()).toBe('Graph');
   });
 });
