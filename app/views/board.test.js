@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { createSubscriptionIssueStore } from '../data/subscription-issue-store.js';
+import { createStore } from '../state.js';
 import { createBoardView } from './board.js';
 
 function createTestIssueStores() {
@@ -40,6 +41,152 @@ function createTestIssueStores() {
       return () => listeners.delete(fn);
     }
   };
+}
+
+/** Base creation time for seeded issues; later seeds sort after earlier. */
+const SEED_BASE_TIME = new Date('2025-10-20T08:00:00.000Z').getTime();
+
+/** The four default board columns. */
+const DEFAULT_COLUMN_IDS = ['blocked', 'ready', 'in-progress', 'closed'];
+
+/**
+ * Push a snapshot into one subscription store.
+ *
+ * @param {ReturnType<typeof createTestIssueStores>} issueStores
+ * @param {string} id
+ * @param {Array<Record<string, unknown>>} issues
+ */
+function pushSnapshot(issueStores, id, issues) {
+  issueStores.getStore(id).applyPush({
+    type: 'snapshot',
+    id,
+    revision: 1,
+    issues
+  });
+}
+
+/**
+ * Seed every default column, giving each issue a title and increasing
+ * creation times so the column order follows the listed order within a
+ * priority.
+ *
+ * @param {ReturnType<typeof createTestIssueStores>} issueStores
+ * @param {Record<string, Array<Record<string, unknown>>>} by_column
+ */
+function seedColumns(issueStores, by_column) {
+  let seq = 0;
+  for (const col_id of DEFAULT_COLUMN_IDS) {
+    const issues = (by_column[col_id] || []).map((issue) => {
+      seq += 1;
+      const at = SEED_BASE_TIME + seq;
+      return {
+        title: String(issue.id),
+        created_at: at,
+        updated_at: at,
+        ...issue
+      };
+    });
+    pushSnapshot(issueStores, 'tab:board:' + col_id, issues);
+  }
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @param {string} col_id
+ * @returns {Array<string|null>}
+ */
+function columnIds(mount, col_id) {
+  return Array.from(mount.querySelectorAll(`#${col_id}-col .board-card`)).map(
+    (el) => el.getAttribute('data-issue-id')
+  );
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @param {string} key
+ * @returns {HTMLButtonElement}
+ */
+function triggerOf(mount, key) {
+  const el = mount.querySelector(
+    `[data-filter="${key}"] .filter-dropdown__trigger`
+  );
+  if (!el) {
+    throw new Error(`no trigger for ${key}`);
+  }
+  return /** @type {HTMLButtonElement} */ (el);
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @param {string} key
+ * @returns {string[]}
+ */
+function optionLabels(mount, key) {
+  return Array.from(
+    mount.querySelectorAll(`[data-filter="${key}"] .filter-dropdown__option`)
+  ).map((el) => String(el.textContent).trim());
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @param {string} key
+ * @param {string} label
+ * @returns {HTMLInputElement}
+ */
+function optionInput(mount, key, label) {
+  const found = Array.from(
+    mount.querySelectorAll(`[data-filter="${key}"] .filter-dropdown__option`)
+  ).find((el) => String(el.textContent).trim() === label);
+  const input = found ? found.querySelector('input') : null;
+  if (!input) {
+    throw new Error(`no ${key} option ${label}`);
+  }
+  return input;
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @returns {Array<string|null>}
+ */
+function parentRowValues(mount) {
+  return Array.from(
+    mount.querySelectorAll('.board-parent-picker__list [role="option"]')
+  ).map((el) => el.getAttribute('data-value'));
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @param {string} value - '' for the "Any parent" row.
+ * @returns {HTMLElement}
+ */
+function parentRow(mount, value) {
+  const el = mount.querySelector(
+    `.board-parent-picker__list [role="option"][data-value="${value}"]`
+  );
+  if (!el) {
+    throw new Error(`no parent row ${value}`);
+  }
+  return /** @type {HTMLElement} */ (el);
+}
+
+/**
+ * @param {string} key
+ */
+function keydown(key) {
+  return new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+}
+
+/**
+ * Dispatch a keydown on the focused element.
+ *
+ * @param {string} key
+ */
+function keydownOnFocused(key) {
+  const el = document.activeElement;
+  if (!el) {
+    throw new Error('nothing focused');
+  }
+  el.dispatchEvent(keydown(key));
 }
 
 describe('views/board', () => {
@@ -815,45 +962,12 @@ describe('views/board', () => {
     expect(a_card.tabIndex).toBe(-1);
   });
 
-  test('filter bar renders three select dropdowns above the board grid', async () => {
+  test('filter bar renders Parent, Types, Priority, Assignee and Columns above the grid', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
-
-    const now = Date.now();
     const issueStores = createTestIssueStores();
-    issueStores.getStore('tab:board:blocked').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:blocked',
-      revision: 1,
-      issues: [
-        {
-          id: 'B-1',
-          title: 'b1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task',
-          parent: 'epic-1',
-          assignee: 'alice'
-        }
-      ]
-    });
-    issueStores.getStore('tab:board:ready').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:ready',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:in-progress').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:in-progress',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:closed').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:closed',
-      revision: 1,
-      issues: []
+    seedColumns(issueStores, {
+      blocked: [{ id: 'B-1', title: 'b1', parent: 'epic-1', assignee: 'a' }]
     });
 
     const view = createBoardView({
@@ -863,101 +977,54 @@ describe('views/board', () => {
     });
     await view.load();
 
-    // Filter bar should render above the board grid
     const filter_bar = mount.querySelector('.board-filter-bar');
     expect(filter_bar).not.toBeNull();
-
-    // Three select dropdowns
+    const keys = Array.from(
+      filter_bar?.querySelectorAll('[data-filter]') || []
+    ).map((el) => el.getAttribute('data-filter'));
+    // No labels on the board: the Labels filter is hidden
+    expect(keys).toEqual(['parent', 'types', 'priorities', 'columns']);
+    // Assignee stays a single select
     const selects = filter_bar?.querySelectorAll('select');
-    expect(selects?.length).toBe(3);
+    expect(selects?.length).toBe(1);
+    expect(selects?.[0].getAttribute('aria-label')).toBe('Filter by assignee');
+    // No filter active: no Clear filters button
+    expect(filter_bar?.querySelector('.board-filter-bar__clear')).toBeNull();
 
-    // Board root should still exist
-    const board_root = mount.querySelector('.board-root');
-    expect(board_root).not.toBeNull();
-
-    // Filter bar should come before board-root in DOM
+    // Filter bar comes before the board grid
     const children = Array.from(mount.children);
-    const filter_idx = children.indexOf(/** @type {Element} */ (filter_bar));
-    const board_idx = children.indexOf(/** @type {Element} */ (board_root));
-    expect(filter_idx).toBeLessThan(board_idx);
+    const board_root = mount.querySelector('.board-root');
+    expect(children.indexOf(/** @type {Element} */ (filter_bar))).toBeLessThan(
+      children.indexOf(/** @type {Element} */ (board_root))
+    );
+
+    // ARIA wiring of the Parent picker
+    const trigger = triggerOf(mount, 'parent');
+    expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    const menu_id = String(trigger.getAttribute('aria-controls'));
+    expect(mount.querySelector(`#${menu_id}`)).not.toBeNull();
   });
 
-  test('filter dropdowns populate with unique sorted values from issue data', async () => {
+  test('filter options: known types first, P0 to P4, sorted assignees, parent tree', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
-
-    const now = Date.now();
     const issueStores = createTestIssueStores();
-    issueStores.getStore('tab:board:blocked').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:blocked',
-      revision: 1,
-      issues: [
+    seedColumns(issueStores, {
+      blocked: [
         {
           id: 'B-1',
-          title: 'b1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task',
+          issue_type: 'spike',
           parent: 'epic-2',
           assignee: 'charlie'
         }
-      ]
-    });
-    issueStores.getStore('tab:board:ready').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:ready',
-      revision: 1,
-      issues: [
-        {
-          id: 'R-1',
-          title: 'r1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'bug',
-          parent: 'epic-1',
-          assignee: 'alice'
-        },
-        {
-          id: 'R-2',
-          title: 'r2',
-          created_at: now - 1,
-          updated_at: now - 1,
-          issue_type: 'task',
-          parent: 'epic-2',
-          assignee: 'bob'
-        }
-      ]
-    });
-    issueStores.getStore('tab:board:in-progress').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:in-progress',
-      revision: 1,
-      issues: [
-        {
-          id: 'P-1',
-          title: 'p1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'feature',
-          parent: 'epic-1',
-          assignee: 'alice'
-        }
-      ]
-    });
-    issueStores.getStore('tab:board:closed').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:closed',
-      revision: 1,
-      issues: [
-        {
-          id: 'C-1',
-          title: 'c1',
-          updated_at: now,
-          closed_at: now,
-          issue_type: 'bug',
-          assignee: 'bob'
-        }
+      ],
+      ready: [
+        { id: 'R-1', issue_type: 'bug', parent: 'epic-1', assignee: 'alice' },
+        { id: 'R-2', issue_type: 'task', parent: 'epic-10', assignee: 'bob' }
+      ],
+      closed: [
+        { id: 'C-1', issue_type: 'adr', closed_at: Date.now(), assignee: 'bob' }
       ]
     });
 
@@ -968,135 +1035,48 @@ describe('views/board', () => {
     });
     await view.load();
 
-    // Parent dropdown options (sorted alphabetically)
-    const parent_select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('[aria-label="Filter by parent"]')
-    );
-    const parent_opts = Array.from(parent_select.options).map((o) => o.value);
-    // First option is "All Parents" with empty value
-    expect(parent_opts[0]).toBe('');
-    // Unique parents sorted
-    expect(parent_opts.slice(1)).toEqual(['epic-1', 'epic-2']);
-
-    // Assignee dropdown
+    expect(optionLabels(mount, 'types')).toEqual([
+      'Bug',
+      'Feature',
+      'Task',
+      'Epic',
+      'Chore',
+      'adr',
+      'spike'
+    ]);
+    expect(optionLabels(mount, 'priorities')).toEqual([
+      'P0 Critical',
+      'P1 High',
+      'P2 Medium',
+      'P3 Low',
+      'P4 Backlog'
+    ]);
     const assignee_select = /** @type {HTMLSelectElement} */ (
       mount.querySelector('[aria-label="Filter by assignee"]')
     );
-    const assignee_opts = Array.from(assignee_select.options).map(
-      (o) => o.value
-    );
-    expect(assignee_opts[0]).toBe('');
-    expect(assignee_opts.slice(1)).toEqual(['alice', 'bob', 'charlie']);
-
-    // Type dropdown
-    const type_select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('[aria-label="Filter by type"]')
-    );
-    const type_opts = Array.from(type_select.options).map((o) => o.value);
-    expect(type_opts[0]).toBe('');
-    expect(type_opts.slice(1)).toEqual(['bug', 'feature', 'task']);
+    expect(Array.from(assignee_select.options).map((o) => o.value)).toEqual([
+      '',
+      'alice',
+      'bob',
+      'charlie'
+    ]);
+    // Parents in natural id order, after the "Any parent" row
+    expect(parentRowValues(mount)).toEqual(['', 'epic-1', 'epic-2', 'epic-10']);
   });
 
-  test('single filter active reduces visible cards to matching issues', async () => {
+  test('OR within a filter and AND across filters', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
-
-    const now = Date.now();
-    const store = {
-      state: {
-        selected_id: null,
-        view: 'board',
-        filters: { status: 'all', search: '', type: '' },
-        board: {
-          closed_filter: 'today',
-          board_filters: { parent: null, assignee: null, type: null }
-        }
-      },
-      subs: /** @type {((s:any)=>void)[]} */ ([]),
-      getState() {
-        return this.state;
-      },
-      /** @param {any} patch */
-      setState(patch) {
-        this.state = {
-          ...this.state,
-          ...(patch || {}),
-          filters: { ...this.state.filters, ...(patch.filters || {}) },
-          board: {
-            ...this.state.board,
-            ...(patch.board || {}),
-            board_filters: {
-              ...this.state.board.board_filters,
-              ...(patch.board?.board_filters || {})
-            }
-          }
-        };
-        for (const fn of this.subs) {
-          fn(this.state);
-        }
-      },
-      /** @param {(s:any)=>void} fn */
-      subscribe(fn) {
-        this.subs.push(fn);
-        return () => {
-          this.subs = this.subs.filter((f) => f !== fn);
-        };
-      }
-    };
-
+    const store = createStore({ view: 'board' });
     const issueStores = createTestIssueStores();
-    issueStores.getStore('tab:board:blocked').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:blocked',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:ready').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:ready',
-      revision: 1,
-      issues: [
-        {
-          id: 'R-1',
-          title: 'r1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task',
-          parent: 'epic-1',
-          assignee: 'alice'
-        },
-        {
-          id: 'R-2',
-          title: 'r2',
-          created_at: now - 1,
-          updated_at: now - 1,
-          issue_type: 'bug',
-          parent: 'epic-2',
-          assignee: 'bob'
-        }
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', issue_type: 'task', priority: 1, assignee: 'alice' },
+        { id: 'R-2', issue_type: 'bug', priority: 1, assignee: 'alice' },
+        { id: 'R-3', issue_type: 'chore', priority: 1, assignee: 'alice' },
+        { id: 'R-4', issue_type: 'task', priority: 3, assignee: 'alice' },
+        { id: 'R-5', issue_type: 'task', priority: 1, assignee: 'bob' }
       ]
-    });
-    issueStores.getStore('tab:board:in-progress').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:in-progress',
-      revision: 1,
-      issues: [
-        {
-          id: 'P-1',
-          title: 'p1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task',
-          parent: 'epic-1',
-          assignee: 'charlie'
-        }
-      ]
-    });
-    issueStores.getStore('tab:board:closed').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:closed',
-      revision: 1,
-      issues: []
     });
 
     const view = createBoardView({
@@ -1107,135 +1087,38 @@ describe('views/board', () => {
     });
     await view.load();
 
-    // Initially all visible
-    let ready_ids = Array.from(
-      mount.querySelectorAll('#ready-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(ready_ids).toHaveLength(2);
+    // Types task OR bug; Ready sorts by priority, so the P3 task R-4 is last
+    optionInput(mount, 'types', 'Task').click();
+    optionInput(mount, 'types', 'Bug').click();
+    expect(store.getState().board.board_filters.types).toEqual(['bug', 'task']);
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2', 'R-5', 'R-4']);
 
-    let prog_ids = Array.from(
-      mount.querySelectorAll('#in-progress-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(prog_ids).toHaveLength(1);
+    // AND Priority P1
+    optionInput(mount, 'priorities', 'P1 High').click();
+    expect(store.getState().board.board_filters.priorities).toEqual([1]);
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2', 'R-5']);
 
-    // Apply type filter = 'task' via select change
-    const type_select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('[aria-label="Filter by type"]')
+    // AND Assignee alice
+    const assignee_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by assignee"]')
     );
-    type_select.value = 'task';
-    type_select.dispatchEvent(new Event('change', { bubbles: true }));
+    assignee_select.value = 'alice';
+    assignee_select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2']);
 
-    // Only task issues should be visible
-    ready_ids = Array.from(
-      mount.querySelectorAll('#ready-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(ready_ids).toEqual(['R-1']);
-
-    prog_ids = Array.from(
-      mount.querySelectorAll('#in-progress-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(prog_ids).toEqual(['P-1']);
+    // Unchecking a type removes it from the OR set
+    optionInput(mount, 'types', 'Bug').click();
+    expect(columnIds(mount, 'ready')).toEqual(['R-1']);
+    expect(triggerOf(mount, 'types').textContent).toContain('Types: Task');
   });
 
-  test('combined filters apply AND logic (intersection)', async () => {
+  test('Priority filter treats a missing priority as the default', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
-
-    const now = Date.now();
-    const store = {
-      state: {
-        selected_id: null,
-        view: 'board',
-        filters: { status: 'all', search: '', type: '' },
-        board: {
-          closed_filter: 'today',
-          board_filters: { parent: null, assignee: null, type: null }
-        }
-      },
-      subs: /** @type {((s:any)=>void)[]} */ ([]),
-      getState() {
-        return this.state;
-      },
-      /** @param {any} patch */
-      setState(patch) {
-        this.state = {
-          ...this.state,
-          ...(patch || {}),
-          filters: { ...this.state.filters, ...(patch.filters || {}) },
-          board: {
-            ...this.state.board,
-            ...(patch.board || {}),
-            board_filters: {
-              ...this.state.board.board_filters,
-              ...(patch.board?.board_filters || {})
-            }
-          }
-        };
-        for (const fn of this.subs) {
-          fn(this.state);
-        }
-      },
-      /** @param {(s:any)=>void} fn */
-      subscribe(fn) {
-        this.subs.push(fn);
-        return () => {
-          this.subs = this.subs.filter((f) => f !== fn);
-        };
-      }
-    };
-
+    const store = createStore({ view: 'board' });
     const issueStores = createTestIssueStores();
-    issueStores.getStore('tab:board:blocked').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:blocked',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:ready').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:ready',
-      revision: 1,
-      issues: [
-        {
-          id: 'R-1',
-          title: 'r1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task',
-          parent: 'epic-1',
-          assignee: 'alice'
-        },
-        {
-          id: 'R-2',
-          title: 'r2',
-          created_at: now - 1,
-          updated_at: now - 1,
-          issue_type: 'task',
-          parent: 'epic-2',
-          assignee: 'bob'
-        },
-        {
-          id: 'R-3',
-          title: 'r3',
-          created_at: now - 2,
-          updated_at: now - 2,
-          issue_type: 'bug',
-          parent: 'epic-1',
-          assignee: 'alice'
-        }
-      ]
-    });
-    issueStores.getStore('tab:board:in-progress').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:in-progress',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:closed').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:closed',
-      revision: 1,
-      issues: []
+    seedColumns(issueStores, {
+      ready: [{ id: 'R-1', priority: 0 }, { id: 'R-2' }]
     });
 
     const view = createBoardView({
@@ -1246,116 +1129,358 @@ describe('views/board', () => {
     });
     await view.load();
 
-    // Apply type=task AND parent=epic-1 (should only match R-1)
-    const type_select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('[aria-label="Filter by type"]')
-    );
-    type_select.value = 'task';
-    type_select.dispatchEvent(new Event('change', { bubbles: true }));
+    optionInput(mount, 'priorities', 'P2 Medium').click();
+    expect(columnIds(mount, 'ready')).toEqual(['R-2']);
+  });
 
-    const parent_select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('[aria-label="Filter by parent"]')
-    );
-    parent_select.value = 'epic-1';
-    parent_select.dispatchEvent(new Event('change', { bubbles: true }));
+  test('Labels filter appears with labels and matches card or index labels', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', labels: ['ui'] },
+        { id: 'R-2' },
+        { id: 'R-3', labels: ['server'] }
+      ]
+    });
 
-    const ready_ids = Array.from(
-      mount.querySelectorAll('#ready-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    // R-1 matches both type=task AND parent=epic-1
-    // R-2 matches type=task but NOT parent=epic-1
-    // R-3 matches parent=epic-1 but NOT type=task
-    expect(ready_ids).toEqual(['R-1']);
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+    expect(optionLabels(mount, 'labels')).toEqual(['server', 'ui']);
+
+    // The index row of R-2 carries a label its card lacks
+    pushSnapshot(issueStores, 'tab:board-index', [
+      { id: 'R-2', labels: ['ui'] }
+    ]);
+    optionInput(mount, 'labels', 'ui').click();
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2']);
+
+    optionInput(mount, 'labels', 'server').click();
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2', 'R-3']);
+  });
+
+  test('Parent matches the whole tree through a closed intermediate not on the board', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'E', issue_type: 'epic', title: 'Epic' },
+        { id: 'T-1', parent: 'F' },
+        { id: 'T-2', parent: 'OTHER' }
+      ]
+    });
+    // F is closed and only known from the board index
+    pushSnapshot(issueStores, 'tab:board-index', [
+      { id: 'E', title: 'Epic', status: 'open' },
+      { id: 'F', title: 'Feature', status: 'closed', parent: 'E' },
+      { id: 'T-1', status: 'open', parent: 'F' }
+    ]);
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    // Tree order: E, then its closed child F, then the unknown OTHER
+    expect(parentRowValues(mount)).toEqual(['', 'E', 'F', 'OTHER']);
+    const f_row = parentRow(mount, 'F');
+    expect(f_row.classList.contains('is-muted')).toBe(true);
+    expect(f_row.getAttribute('style')).toContain('--parent-depth: 1');
+
+    triggerOf(mount, 'parent').click();
+    parentRow(mount, 'E').click();
+    expect(store.getState().board.board_filters.parent).toBe('E');
+    // The parent itself and its grandchild through F
+    expect(columnIds(mount, 'ready')).toEqual(['E', 'T-1']);
+    expect(triggerOf(mount, 'parent').textContent).toContain('Parent: E');
+  });
+
+  test('Parent falls back to the board items when there is no index yet', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'E', issue_type: 'epic' },
+        { id: 'E.1', parent: 'E' },
+        { id: 'T-1', parent: 'F' }
+      ]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    // Without the index F's parent is unknown, so E does not reach T-1
+    expect(parentRowValues(mount)).toEqual(['', 'E', 'F']);
+    triggerOf(mount, 'parent').click();
+    parentRow(mount, 'E').click();
+    expect(columnIds(mount, 'ready')).toEqual(['E', 'E.1']);
+
+    triggerOf(mount, 'parent').click();
+    parentRow(mount, 'F').click();
+    expect(columnIds(mount, 'ready')).toEqual(['T-1']);
+  });
+
+  test('ArrowDown in the Parent picker moves focus without committing', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'A-1', parent: 'A' },
+        { id: 'B-1', parent: 'B' }
+      ]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    triggerOf(mount, 'parent').click();
+    expect(triggerOf(mount, 'parent').getAttribute('aria-expanded')).toBe(
+      'true'
+    );
+    const search = /** @type {HTMLInputElement} */ (
+      mount.querySelector('.board-parent-picker__search')
+    );
+    expect(document.activeElement).toBe(search);
+
+    search.dispatchEvent(keydown('ArrowDown'));
+    expect(document.activeElement).toBe(parentRow(mount, ''));
+    keydownOnFocused('ArrowDown');
+    keydownOnFocused('ArrowDown');
+    expect(document.activeElement).toBe(parentRow(mount, 'B'));
+    keydownOnFocused('ArrowUp');
+    expect(document.activeElement).toBe(parentRow(mount, 'A'));
+
+    // Moving focus commits nothing and keeps the picker open
+    expect(store.getState().board.board_filters.parent).toBeNull();
+    expect(columnIds(mount, 'ready')).toEqual(['A-1', 'B-1']);
+    expect(triggerOf(mount, 'parent').getAttribute('aria-expanded')).toBe(
+      'true'
+    );
+
+    keydownOnFocused('Enter');
+    expect(store.getState().board.board_filters.parent).toBe('A');
+    expect(columnIds(mount, 'ready')).toEqual(['A-1']);
+    expect(triggerOf(mount, 'parent').getAttribute('aria-expanded')).toBe(
+      'false'
+    );
+  });
+
+  test('Parent picker search keeps matching rows and their ancestors', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'E', title: 'Epic' },
+        { id: 'E.1', title: 'Login flow', parent: 'E' },
+        { id: 'E.1.1', parent: 'E.1' },
+        { id: 'E.2', title: 'Billing', parent: 'E' },
+        { id: 'E.2.1', parent: 'E.2' }
+      ]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      issueStores
+    });
+    await view.load();
+
+    triggerOf(mount, 'parent').click();
+    const search = /** @type {HTMLInputElement} */ (
+      mount.querySelector('.board-parent-picker__search')
+    );
+    search.value = 'login';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(parentRowValues(mount)).toEqual(['', 'E', 'E.1']);
+
+    search.value = 'zzz';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(parentRowValues(mount)).toEqual(['']);
+    expect(
+      mount.querySelector('.board-parent-picker__empty')?.textContent
+    ).toContain('No matches');
+  });
+
+  test('a stale Parent selection shows as not found', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({
+      view: 'board',
+      board: { board_filters: { parent: 'GONE-1' } }
+    });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, { ready: [{ id: 'R-1' }] });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    expect(triggerOf(mount, 'parent').textContent).toContain(
+      'Parent: GONE-1 (not found)'
+    );
+    expect(columnIds(mount, 'ready')).toEqual([]);
+  });
+
+  test('Clear filters resets every filter and hides itself', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({
+      view: 'board',
+      board: {
+        board_filters: {
+          assignee: 'alice',
+          types: ['bug'],
+          priorities: [0],
+          labels: ['ui']
+        }
+      }
+    });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', assignee: 'alice', issue_type: 'bug', priority: 0 },
+        { id: 'R-2', assignee: 'bob', labels: ['ui'] }
+      ]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+    expect(columnIds(mount, 'ready')).toEqual([]);
+
+    const clear_btn = /** @type {HTMLButtonElement} */ (
+      mount.querySelector('.board-filter-bar__clear')
+    );
+    expect(clear_btn.textContent?.trim()).toBe('Clear filters');
+    clear_btn.click();
+
+    expect(store.getState().board.board_filters).toEqual({
+      parent: null,
+      assignee: null,
+      types: [],
+      priorities: [],
+      labels: []
+    });
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2']);
+    expect(mount.querySelector('.board-filter-bar__clear')).toBeNull();
+  });
+
+  test('each filter click saves once and does not re-read the stores', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const set_state = vi.spyOn(store, 'setState');
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', issue_type: 'task' },
+        { id: 'R-2', issue_type: 'bug' }
+      ]
+    });
+    const snapshot_for = vi.spyOn(issueStores, 'snapshotFor');
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+    set_state.mockClear();
+    snapshot_for.mockClear();
+
+    optionInput(mount, 'types', 'Task').click();
+    expect(set_state).toHaveBeenCalledTimes(1);
+    expect(snapshot_for).not.toHaveBeenCalled();
+    expect(columnIds(mount, 'ready')).toEqual(['R-1']);
+  });
+
+  test('a legacy single type in the store reads as a Types selection', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    // Ad-hoc store that keeps the pre-array shape as given
+    const store = {
+      getState: () => ({
+        board: {
+          closed_filter: 'today',
+          board_filters: { parent: null, assignee: null, type: 'task' }
+        }
+      }),
+      setState() {},
+      subscribe() {
+        return () => {};
+      }
+    };
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', issue_type: 'task' },
+        { id: 'R-2', issue_type: 'bug' }
+      ]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    expect(optionInput(mount, 'types', 'Task').checked).toBe(true);
+    // Options are computed before filtering, so Bug is still listed
+    expect(optionLabels(mount, 'types')).toContain('Bug');
+    expect(columnIds(mount, 'ready')).toEqual(['R-1']);
   });
 
   test('clearing all filters restores full board view', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
-
-    const now = Date.now();
-    const store = {
-      state: {
-        selected_id: null,
-        view: 'board',
-        filters: { status: 'all', search: '', type: '' },
-        board: {
-          closed_filter: 'today',
-          board_filters: { parent: null, assignee: 'alice', type: null }
-        }
-      },
-      subs: /** @type {((s:any)=>void)[]} */ ([]),
-      getState() {
-        return this.state;
-      },
-      /** @param {any} patch */
-      setState(patch) {
-        this.state = {
-          ...this.state,
-          ...(patch || {}),
-          filters: { ...this.state.filters, ...(patch.filters || {}) },
-          board: {
-            ...this.state.board,
-            ...(patch.board || {}),
-            board_filters: {
-              ...this.state.board.board_filters,
-              ...(patch.board?.board_filters || {})
-            }
-          }
-        };
-        for (const fn of this.subs) {
-          fn(this.state);
-        }
-      },
-      /** @param {(s:any)=>void} fn */
-      subscribe(fn) {
-        this.subs.push(fn);
-        return () => {
-          this.subs = this.subs.filter((f) => f !== fn);
-        };
-      }
-    };
-
+    const store = createStore({
+      view: 'board',
+      board: { board_filters: { assignee: 'alice' } }
+    });
     const issueStores = createTestIssueStores();
-    issueStores.getStore('tab:board:blocked').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:blocked',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:ready').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:ready',
-      revision: 1,
-      issues: [
-        {
-          id: 'R-1',
-          title: 'r1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task',
-          assignee: 'alice'
-        },
-        {
-          id: 'R-2',
-          title: 'r2',
-          created_at: now - 1,
-          updated_at: now - 1,
-          issue_type: 'task',
-          assignee: 'bob'
-        }
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', assignee: 'alice' },
+        { id: 'R-2', assignee: 'bob' }
       ]
-    });
-    issueStores.getStore('tab:board:in-progress').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:in-progress',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:closed').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:closed',
-      revision: 1,
-      issues: []
     });
 
     const view = createBoardView({
@@ -1365,12 +1490,7 @@ describe('views/board', () => {
       issueStores
     });
     await view.load();
-
-    // With assignee=alice filter, only R-1 visible
-    let ready_ids = Array.from(
-      mount.querySelectorAll('#ready-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(ready_ids).toEqual(['R-1']);
+    expect(columnIds(mount, 'ready')).toEqual(['R-1']);
 
     // Clear the assignee filter by selecting "All Assignees"
     const assignee_select = /** @type {HTMLSelectElement} */ (
@@ -1378,125 +1498,33 @@ describe('views/board', () => {
     );
     assignee_select.value = '';
     assignee_select.dispatchEvent(new Event('change', { bubbles: true }));
-
-    // Both issues should be visible again
-    ready_ids = Array.from(
-      mount.querySelectorAll('#ready-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(ready_ids).toHaveLength(2);
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2']);
   });
 
-  test('filter options computed BEFORE filtering (dropdowns show all values)', async () => {
+  test('clear() disposes the filter dropdown controller', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
-
-    const now = Date.now();
-    const store = {
-      state: {
-        selected_id: null,
-        view: 'board',
-        filters: { status: 'all', search: '', type: '' },
-        board: {
-          closed_filter: 'today',
-          board_filters: { parent: null, assignee: null, type: 'task' }
-        }
-      },
-      subs: /** @type {((s:any)=>void)[]} */ ([]),
-      getState() {
-        return this.state;
-      },
-      /** @param {any} patch */
-      setState(patch) {
-        this.state = {
-          ...this.state,
-          ...(patch || {}),
-          filters: { ...this.state.filters, ...(patch.filters || {}) },
-          board: {
-            ...this.state.board,
-            ...(patch.board || {}),
-            board_filters: {
-              ...this.state.board.board_filters,
-              ...(patch.board?.board_filters || {})
-            }
-          }
-        };
-        for (const fn of this.subs) {
-          fn(this.state);
-        }
-      },
-      /** @param {(s:any)=>void} fn */
-      subscribe(fn) {
-        this.subs.push(fn);
-        return () => {
-          this.subs = this.subs.filter((f) => f !== fn);
-        };
-      }
-    };
-
     const issueStores = createTestIssueStores();
-    issueStores.getStore('tab:board:blocked').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:blocked',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:ready').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:ready',
-      revision: 1,
-      issues: [
-        {
-          id: 'R-1',
-          title: 'r1',
-          created_at: now,
-          updated_at: now,
-          issue_type: 'task'
-        },
-        {
-          id: 'R-2',
-          title: 'r2',
-          created_at: now - 1,
-          updated_at: now - 1,
-          issue_type: 'bug'
-        }
-      ]
-    });
-    issueStores.getStore('tab:board:in-progress').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:in-progress',
-      revision: 1,
-      issues: []
-    });
-    issueStores.getStore('tab:board:closed').applyPush({
-      type: 'snapshot',
-      id: 'tab:board:closed',
-      revision: 1,
-      issues: []
-    });
+    seedColumns(issueStores, { ready: [{ id: 'R-1', issue_type: 'task' }] });
 
     const view = createBoardView({
       mount_element: mount,
       gotoIssue: () => {},
-      store,
       issueStores
     });
     await view.load();
 
-    // Even though type=task filter is active, the type dropdown
-    // should still show both 'bug' and 'task' options
-    const type_select = /** @type {HTMLSelectElement} */ (
-      mount.querySelector('[aria-label="Filter by type"]')
+    triggerOf(mount, 'types').click();
+    expect(triggerOf(mount, 'types').getAttribute('aria-expanded')).toBe(
+      'true'
     );
-    const type_opts = Array.from(type_select.options)
-      .map((o) => o.value)
-      .filter(Boolean);
-    expect(type_opts).toEqual(['bug', 'task']);
+    view.clear();
+    expect(mount.children.length).toBe(0);
 
-    // But only task issues should be visible in the board
-    const ready_ids = Array.from(
-      mount.querySelectorAll('#ready-col .board-card')
-    ).map((el) => el.getAttribute('data-issue-id'));
-    expect(ready_ids).toEqual(['R-1']);
+    // A live controller would close the menu and re-render into the mount
+    document.dispatchEvent(keydown('Escape'));
+    document.body.click();
+    expect(mount.children.length).toBe(0);
   });
 
   test('filtering works across dynamic column counts (5 columns)', async () => {

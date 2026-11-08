@@ -150,7 +150,7 @@ describe('views/board column visibility', () => {
 
     // Dropdown trigger shows 4/4
     const trigger = mount.querySelector(
-      '.board-filter-bar .filter-dropdown__trigger'
+      '[data-filter="columns"] .filter-dropdown__trigger'
     );
     expect(trigger?.textContent).toContain('4/4');
   });
@@ -171,7 +171,7 @@ describe('views/board column visibility', () => {
 
     // Uncheck "Blocked" column (first checkbox in dropdown)
     const checkboxes = mount.querySelectorAll(
-      '.board-filter-bar .filter-dropdown__option input[type="checkbox"]'
+      '[data-filter="columns"] .filter-dropdown__option input[type="checkbox"]'
     );
     expect(checkboxes.length).toBe(4);
     /** @type {HTMLInputElement} */ (checkboxes[0]).click();
@@ -186,7 +186,7 @@ describe('views/board column visibility', () => {
 
     // Dropdown trigger shows 3/4
     const trigger = mount.querySelector(
-      '.board-filter-bar .filter-dropdown__trigger'
+      '[data-filter="columns"] .filter-dropdown__trigger'
     );
     expect(trigger?.textContent).toContain('3/4');
   });
@@ -208,7 +208,7 @@ describe('views/board column visibility', () => {
     // Toggle off then on
     const getCheckboxes = () =>
       mount.querySelectorAll(
-        '.board-filter-bar .filter-dropdown__option input[type="checkbox"]'
+        '[data-filter="columns"] .filter-dropdown__option input[type="checkbox"]'
       );
     /** @type {HTMLInputElement} */ (getCheckboxes()[0]).click();
     expect(mount.querySelectorAll('.board-column').length).toBe(3);
@@ -237,7 +237,7 @@ describe('views/board column visibility', () => {
 
     // Toggle off one column
     const checkboxes = mount.querySelectorAll(
-      '.board-filter-bar .filter-dropdown__option input[type="checkbox"]'
+      '[data-filter="columns"] .filter-dropdown__option input[type="checkbox"]'
     );
     /** @type {HTMLInputElement} */ (checkboxes[0]).click();
 
@@ -260,7 +260,7 @@ describe('views/board column visibility', () => {
     await view.load();
 
     const labels = Array.from(
-      mount.querySelectorAll('.board-filter-bar .filter-dropdown__option')
+      mount.querySelectorAll('[data-filter="columns"] .filter-dropdown__option')
     ).map((el) => el.textContent?.trim());
     expect(labels).toEqual(['Blocked', 'Ready', 'In Progress', 'Closed']);
   });
@@ -284,7 +284,7 @@ describe('views/board column visibility localStorage persistence', () => {
 
     // Toggle off "Ready" (second checkbox)
     const checkboxes = mount.querySelectorAll(
-      '.board-filter-bar .filter-dropdown__option input[type="checkbox"]'
+      '[data-filter="columns"] .filter-dropdown__option input[type="checkbox"]'
     );
     /** @type {HTMLInputElement} */ (checkboxes[1]).click();
 
@@ -328,7 +328,7 @@ describe('views/board column visibility localStorage persistence', () => {
 
     // Dropdown trigger shows 3/4
     const trigger = mount.querySelector(
-      '.board-filter-bar .filter-dropdown__trigger'
+      '[data-filter="columns"] .filter-dropdown__trigger'
     );
     expect(trigger?.textContent).toContain('3/4');
   });

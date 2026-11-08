@@ -1,11 +1,59 @@
 import { html, render } from 'lit-html';
+import { ancestorIds, buildDepIndex } from '../data/dep-graph.js';
+import { BOARD_INDEX_CLIENT_ID } from '../data/graph-subscription.js';
 import { createListSelectors } from '../data/list-selectors.js';
+import {
+  filterParentOptions,
+  flattenParentOptions
+} from '../data/parent-options.js';
 import { cmpClosedDesc, cmpPriorityThenCreated } from '../data/sort.js';
+import {
+  createEmptyBoardFilters,
+  hasActiveBoardFilters,
+  normalizeBoardFilters
+} from '../state.js';
 import { createIssueIdRenderer } from '../utils/issue-id-renderer.js';
+import { ISSUE_TYPES, typeLabel } from '../utils/issue-type.js';
 import { debug } from '../utils/logging.js';
 import { createPriorityBadge } from '../utils/priority-badge.js';
+import {
+  DEFAULT_PRIORITY,
+  MAX_PRIORITY,
+  MIN_PRIORITY,
+  priority_levels
+} from '../utils/priority.js';
 import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
+import {
+  createFilterDropdownController,
+  multiSelectDropdownTemplate
+} from './filter-dropdown.js';
+
+/** Prefix for the filter dropdown menu ids referenced by `aria-controls`. */
+const FILTER_ID_PREFIX = 'board-filter';
+
+/** Dropdown keys, rendered as `data-filter`. */
+const PARENT_KEY = 'parent';
+const TYPES_KEY = 'types';
+const PRIORITIES_KEY = 'priorities';
+const LABELS_KEY = 'labels';
+const COLUMNS_KEY = 'columns';
+
+const PARENT_MENU_ID = `${FILTER_ID_PREFIX}-${PARENT_KEY}-menu`;
+
+/** Known issue types, listed before any unknown type found on the board. */
+const KNOWN_TYPE_OPTIONS = ISSUE_TYPES.map((t) => ({
+  value: t,
+  label: typeLabel(t)
+}));
+
+/** Priority options, `P0 Critical` to `P4 Backlog`. */
+const PRIORITY_OPTIONS = priority_levels
+  .slice(MIN_PRIORITY, MAX_PRIORITY + 1)
+  .map((name, i) => ({
+    value: String(MIN_PRIORITY + i),
+    label: `P${MIN_PRIORITY + i} ${name}`
+  }));
 
 /**
  * Calculate the minimum column width for a responsive board grid.
@@ -43,8 +91,20 @@ export function computeColMinWidth(
  *   updated_at?: number,
  *   closed_at?: number,
  *   parent?: string,
- *   assignee?: string
+ *   assignee?: string,
+ *   labels?: string[]
  * }} IssueLite
+ */
+
+/**
+ * Filter choices, always computed from the unfiltered board.
+ *
+ * @typedef {{
+ *   parents: import('../data/parent-options.js').ParentOption[],
+ *   assignees: string[],
+ *   types: import('./filter-dropdown.js').FilterOption[],
+ *   labels: import('./filter-dropdown.js').FilterOption[]
+ * }} FilterOptions
  */
 
 /**
@@ -132,16 +192,33 @@ export function createBoardView(options) {
     is_closed: col.is_closed ?? col.subscription === 'closed-issues'
   }));
 
+  // column_raw: closed columns before the closed date filter.
+  // column_data: every column after the closed date filter, before the board
+  // filters; filter options are computed from it and column_raw.
+  // column_view: column_data narrowed by the board filters, as rendered.
   /** @type {Map<string, IssueLite[]>} */
   const column_data = new Map();
   /** @type {Map<string, IssueLite[]>} */
   const column_raw = new Map();
+  /** @type {Map<string, IssueLite[]>} */
+  const column_view = new Map();
   for (const col of col_defs) {
     column_data.set(col.id, []);
+    column_view.set(col.id, []);
     if (col.is_closed) {
       column_raw.set(col.id, []);
     }
   }
+  /** Dependency index over the board-index snapshot and the board items. */
+  let dep_index = buildDepIndex([]);
+  /** Board filters used when no store is provided. */
+  let local_filters = createEmptyBoardFilters();
+  /** Search text typed into the Parent picker. */
+  let parent_query = '';
+  // Filter dropdowns: one open at a time, closed on outside click/Escape
+  const dropdowns = createFilterDropdownController({
+    onChange: () => doRender()
+  });
   // Centralized selection helpers
   const selectors = issueStores ? createListSelectors(issueStores) : null;
 
@@ -236,9 +313,6 @@ export function createBoardView(options) {
    */
   let column_visibility = loadVisibility();
 
-  /** Whether the columns dropdown is currently open */
-  let columns_dropdown_open = false;
-
   /**
    * Closed column filter mode.
    * 'today' → items with closed_at since local day start
@@ -260,55 +334,155 @@ export function createBoardView(options) {
     }
   }
 
-  /** @type {{ parents: string[], assignees: string[], types: string[] }} */
-  let last_filter_options = { parents: [], assignees: [], types: [] };
+  /** @type {FilterOptions} */
+  let last_filter_options = {
+    parents: [],
+    assignees: [],
+    types: KNOWN_TYPE_OPTIONS,
+    labels: []
+  };
 
   /**
-   * Scan all column_data Map entries for unique filter values.
-   * Must be called BEFORE board filters are applied so dropdowns
-   * show all available values, not just the filtered subset.
+   * Current board filters, normalized so legacy or partial store values
+   * (for example a single `type`) read as the multi-valued shape.
    *
-   * @returns {{ parents: string[], assignees: string[], types: string[] }}
+   * @returns {import('../state.js').BoardFilters}
+   */
+  function getFilters() {
+    if (!store) {
+      return local_filters;
+    }
+    try {
+      return normalizeBoardFilters(store.getState()?.board?.board_filters);
+    } catch {
+      return createEmptyBoardFilters();
+    }
+  }
+
+  /**
+   * Merge a patch into the board filters, save it and recompute the
+   * filtered columns. Callers render once afterwards.
+   *
+   * @param {Partial<import('../state.js').BoardFilters>} patch
+   */
+  function updateFilters(patch) {
+    const next = normalizeBoardFilters({ ...getFilters(), ...patch });
+    if (store) {
+      try {
+        store.setState({ board: { board_filters: next } });
+      } catch {
+        // ignore store errors
+      }
+    } else {
+      local_filters = next;
+    }
+    applyBoardFilters();
+  }
+
+  /**
+   * Every item on the board before any filter: the raw list of closed
+   * columns and the data of the others.
+   *
+   * @returns {IssueLite[]}
+   */
+  function boardItems() {
+    /** @type {IssueLite[]} */
+    const out = [];
+    for (const col of col_defs) {
+      const items =
+        (col.is_closed ? column_raw.get(col.id) : column_data.get(col.id)) ||
+        [];
+      out.push(...items);
+    }
+    return out;
+  }
+
+  /**
+   * Rebuild the dependency index from the board-index snapshot plus the
+   * board items. Before that snapshot arrives the board items alone are
+   * used, so Parent then matches only ancestors visible on the board.
+   */
+  function rebuildIndex() {
+    const index_rows =
+      issueStores && typeof issueStores.snapshotFor === 'function'
+        ? issueStores.snapshotFor(BOARD_INDEX_CLIENT_ID)
+        : [];
+    dep_index = buildDepIndex([
+      ...(Array.isArray(index_rows) ? index_rows : []),
+      ...boardItems()
+    ]);
+  }
+
+  /**
+   * Labels of an item: its own plus those of its index entry.
+   *
+   * @param {IssueLite} it
+   * @returns {string[]}
+   */
+  function labelsOf(it) {
+    const own = Array.isArray(it.labels) ? it.labels : [];
+    const indexed = dep_index.entries.get(it.id)?.issue.labels;
+    return Array.isArray(indexed) ? [...own, ...indexed] : own;
+  }
+
+  /**
+   * @param {IssueLite} it
+   * @returns {number}
+   */
+  function priorityOf(it) {
+    return typeof it.priority === 'number' ? it.priority : DEFAULT_PRIORITY;
+  }
+
+  /**
+   * Compute filter options from the unfiltered board, so the lists never
+   * shrink when a filter or the closed date filter narrows the view. Current
+   * selections stay listed so they can be cleared.
+   *
+   * @returns {FilterOptions}
    */
   function getFilterOptions() {
-    /** @type {Set<string>} */
-    const parents = new Set();
+    const filters = getFilters();
+    const items = boardItems();
     /** @type {Set<string>} */
     const assignees = new Set();
     /** @type {Set<string>} */
-    const types = new Set();
-    for (const [, items] of column_data) {
-      for (const it of items) {
-        if (it.parent && typeof it.parent === 'string') {
-          parents.add(it.parent);
-        }
-        if (it.assignee && typeof it.assignee === 'string') {
-          assignees.add(it.assignee);
-        }
-        if (it.issue_type && typeof it.issue_type === 'string') {
-          types.add(it.issue_type);
+    const types = new Set(filters.types);
+    /** @type {Set<string>} */
+    const labels = new Set(filters.labels);
+    for (const it of items) {
+      if (it.assignee && typeof it.assignee === 'string') {
+        assignees.add(it.assignee);
+      }
+      if (it.issue_type && typeof it.issue_type === 'string') {
+        types.add(it.issue_type);
+      }
+      for (const label of labelsOf(it)) {
+        if (typeof label === 'string' && label.length > 0) {
+          labels.add(label);
         }
       }
     }
-    // Also scan column_raw for closed columns (they may have items
-    // not yet in column_data due to the closed date filter)
-    for (const [, items] of column_raw) {
-      for (const it of items) {
-        if (it.parent && typeof it.parent === 'string') {
-          parents.add(it.parent);
-        }
-        if (it.assignee && typeof it.assignee === 'string') {
-          assignees.add(it.assignee);
-        }
-        if (it.issue_type && typeof it.issue_type === 'string') {
-          types.add(it.issue_type);
-        }
-      }
+    if (filters.assignee !== null) {
+      assignees.add(filters.assignee);
     }
+    /** @type {Set<string>} */
+    const known_types = new Set(ISSUE_TYPES);
+    const unknown_types = Array.from(types)
+      .filter((t) => !known_types.has(t))
+      .sort((a, b) => a.localeCompare(b));
     return {
-      parents: Array.from(parents).sort((a, b) => a.localeCompare(b)),
+      parents: flattenParentOptions(
+        dep_index,
+        items.map((it) => it.id)
+      ),
       assignees: Array.from(assignees).sort((a, b) => a.localeCompare(b)),
-      types: Array.from(types).sort((a, b) => a.localeCompare(b))
+      types: [
+        ...KNOWN_TYPE_OPTIONS,
+        ...unknown_types.map((t) => ({ value: t, label: t }))
+      ],
+      labels: Array.from(labels)
+        .sort((a, b) => a.localeCompare(b))
+        .map((l) => ({ value: l, label: l }))
     };
   }
 
@@ -336,77 +510,334 @@ export function createBoardView(options) {
    * Render the columns visibility dropdown template.
    */
   function columnVisibilityTemplate() {
-    const visible_count = col_defs.filter(
-      (c) => column_visibility[c.id] !== false
-    ).length;
-    const total_count = col_defs.length;
+    const visible_ids = col_defs
+      .filter((c) => column_visibility[c.id] !== false)
+      .map((c) => c.id);
+    return multiSelectDropdownTemplate({
+      key: COLUMNS_KEY,
+      label: 'Columns',
+      options: col_defs.map((c) => ({ value: c.id, label: c.label })),
+      selected: visible_ids,
+      open: dropdowns.isOpen(COLUMNS_KEY),
+      onToggle: dropdowns.toggle,
+      onChange: (value) => toggleColumnVisibility(value),
+      id_prefix: FILTER_ID_PREFIX,
+      display_text: `Columns ${visible_ids.length}/${col_defs.length}`
+    });
+  }
+
+  /**
+   * Close the dropdown `key` when it is open, which renders once through the
+   * controller; otherwise render directly.
+   *
+   * @param {string} key
+   */
+  function closeDropdownAndRender(key) {
+    if (dropdowns.isOpen(key)) {
+      dropdowns.close();
+    } else {
+      doRender();
+    }
+  }
+
+  /**
+   * Commit a Parent picker choice.
+   *
+   * @param {string|null} value
+   */
+  function commitParent(value) {
+    parent_query = '';
+    updateFilters({ parent: value });
+    closeDropdownAndRender(PARENT_KEY);
+  }
+
+  /**
+   * Add or remove one value of a string list filter.
+   *
+   * @param {'types'|'labels'} field
+   * @param {string} value
+   * @param {boolean} checked
+   */
+  function toggleListFilter(field, value, checked) {
+    const current = getFilters()[field];
+    updateFilters({
+      [field]: checked
+        ? [...current, value]
+        : current.filter((v) => v !== value)
+    });
+    doRender();
+  }
+
+  /**
+   * Add or remove one priority from the Priority filter.
+   *
+   * @param {string} value
+   * @param {boolean} checked
+   */
+  function togglePriorityFilter(value, checked) {
+    const p = Number(value);
+    const current = getFilters().priorities;
+    updateFilters({
+      priorities: checked ? [...current, p] : current.filter((v) => v !== p)
+    });
+    doRender();
+  }
+
+  function onClearFilters() {
+    parent_query = '';
+    updateFilters(createEmptyBoardFilters());
+    doRender();
+  }
+
+  /**
+   * @param {Event} ev
+   */
+  function onParentTriggerClick(ev) {
+    ev.stopPropagation();
+    dropdowns.toggle(PARENT_KEY);
+    if (dropdowns.isOpen(PARENT_KEY)) {
+      const search = /** @type {HTMLInputElement|null} */ (
+        mount_element.querySelector('.board-parent-picker__search')
+      );
+      search?.focus();
+    }
+  }
+
+  /**
+   * @param {Event} ev
+   */
+  function onParentQueryInput(ev) {
+    parent_query = /** @type {HTMLInputElement} */ (ev.target).value;
+    doRender();
+  }
+
+  /**
+   * Option rows of the open Parent picker, in display order.
+   *
+   * @returns {HTMLElement[]}
+   */
+  function parentOptionRows() {
+    return Array.from(
+      mount_element.querySelectorAll(
+        '.board-parent-picker__list [role="option"]'
+      )
+    );
+  }
+
+  /**
+   * ArrowDown in the search box moves focus to the first row.
+   *
+   * @param {KeyboardEvent} ev
+   */
+  function onParentSearchKeydown(ev) {
+    if (ev.key !== 'ArrowDown') {
+      return;
+    }
+    const first = parentOptionRows()[0];
+    if (first) {
+      ev.preventDefault();
+      first.focus();
+    }
+  }
+
+  /**
+   * Arrow, Home and End keys move focus between rows without committing;
+   * Enter or Space commits the focused row.
+   *
+   * @param {KeyboardEvent} ev
+   */
+  function onParentListKeydown(ev) {
+    const target = /** @type {HTMLElement|null} */ (ev.target);
+    const row = target ? target.closest('[role="option"]') : null;
+    if (!row) {
+      return;
+    }
+    const rows = parentOptionRows();
+    const idx = rows.indexOf(/** @type {HTMLElement} */ (row));
+    if (idx === -1) {
+      return;
+    }
+    const key = ev.key;
+    if (key === 'Enter' || key === ' ') {
+      ev.preventDefault();
+      commitParent(row.getAttribute('data-value') || null);
+      return;
+    }
+    /** @type {HTMLElement|null} */
+    let next = null;
+    if (key === 'ArrowDown') {
+      next = rows[Math.min(idx + 1, rows.length - 1)];
+    } else if (key === 'ArrowUp') {
+      next =
+        idx > 0
+          ? rows[idx - 1]
+          : /** @type {HTMLElement|null} */ (
+              mount_element.querySelector('.board-parent-picker__search')
+            );
+    } else if (key === 'Home') {
+      next = rows[0];
+    } else if (key === 'End') {
+      next = rows[rows.length - 1];
+    } else {
+      return;
+    }
+    ev.preventDefault();
+    next?.focus();
+  }
+
+  /**
+   * One Parent picker row. `value` null is the "Any parent" row.
+   *
+   * @param {string|null} value
+   * @param {import('lit-html').TemplateResult} content
+   * @param {{ depth: number, selected: boolean, muted: boolean }} state
+   */
+  function parentRowTemplate(value, content, state) {
+    return html`<li
+      role="option"
+      class="board-parent-picker__option ${state.muted ? 'is-muted' : ''}"
+      tabindex="-1"
+      data-value=${value ?? ''}
+      aria-selected=${state.selected ? 'true' : 'false'}
+      style="--parent-depth: ${state.depth}"
+      @click=${() => commitParent(value)}
+    >
+      ${content}
+    </li>`;
+  }
+
+  /**
+   * Parent picker: a searchable listbox of the board's ancestors in tree
+   * order. A selection that is no longer an ancestor shows as not found.
+   *
+   * @param {string|null} selected
+   */
+  function parentPickerTemplate(selected) {
+    const open = dropdowns.isOpen(PARENT_KEY);
+    const all = last_filter_options.parents;
+    const shown = filterParentOptions(all, parent_query);
+    const stale = selected !== null && !all.some((o) => o.id === selected);
+    const text =
+      selected === null
+        ? 'Parent: Any'
+        : `Parent: ${selected}${stale ? ' (not found)' : ''}`;
     return html`
-      <div class="filter-dropdown ${columns_dropdown_open ? 'is-open' : ''}">
+      <div
+        class="filter-dropdown board-parent-picker ${open ? 'is-open' : ''}"
+        data-filter=${PARENT_KEY}
+      >
         <button
+          type="button"
           class="filter-dropdown__trigger"
-          @click=${() => {
-            columns_dropdown_open = !columns_dropdown_open;
-            doRender();
-          }}
+          aria-haspopup="listbox"
+          aria-expanded=${open ? 'true' : 'false'}
+          aria-controls=${PARENT_MENU_ID}
+          @click=${onParentTriggerClick}
         >
-          Columns ${visible_count}/${total_count}
-          <span class="filter-dropdown__arrow">▾</span>
+          ${text}
+          <span class="filter-dropdown__arrow" aria-hidden="true">▾</span>
         </button>
-        <div class="filter-dropdown__menu">
-          ${col_defs.map(
-            (col) => html`
-              <label class="filter-dropdown__option">
-                <input
-                  type="checkbox"
-                  .checked=${column_visibility[col.id] !== false}
-                  @change=${() => toggleColumnVisibility(col.id)}
-                />
-                ${col.label}
-              </label>
-            `
-          )}
+        <div
+          class="filter-dropdown__menu board-parent-picker__menu"
+          id=${PARENT_MENU_ID}
+        >
+          <input
+            type="search"
+            class="board-parent-picker__search"
+            placeholder="Search parents"
+            aria-label="Search parents"
+            .value=${parent_query}
+            @input=${onParentQueryInput}
+            @keydown=${onParentSearchKeydown}
+          />
+          <ul
+            class="board-parent-picker__list"
+            role="listbox"
+            aria-label="Parent"
+            @keydown=${onParentListKeydown}
+          >
+            ${parentRowTemplate(null, html`Any parent`, {
+              depth: 0,
+              selected: selected === null,
+              muted: false
+            })}
+            ${shown.map((o) =>
+              parentRowTemplate(
+                o.id,
+                html`<span class="board-parent-picker__id mono">${o.id}</span>
+                  <span class="board-parent-picker__title">${o.title}</span>`,
+                {
+                  depth: o.depth,
+                  selected: selected === o.id,
+                  muted: !o.known || o.status === 'closed'
+                }
+              )
+            )}
+          </ul>
+          ${shown.length === 0
+            ? html`<div class="board-parent-picker__empty">
+                ${all.length === 0 ? 'No parents on the board' : 'No matches'}
+              </div>`
+            : ''}
         </div>
       </div>
     `;
   }
 
   /**
-   * Render the filter bar with three select dropdowns above the board grid.
+   * Render the filter bar above the board grid: Parent, Types, Priority,
+   * Labels (only when the board has labels), Assignee, Clear filters (only
+   * while a filter is active) and Columns.
    *
-   * @param {{ parents: string[], assignees: string[], types: string[] }} filter_options
+   * @param {FilterOptions} filter_options
    */
   function filterBarTemplate(filter_options) {
-    const board_state = store ? store.getState().board : null;
-    const current = board_state?.board_filters || {
-      parent: null,
-      assignee: null,
-      type: null
-    };
+    const current = getFilters();
     return html`
       <div class="board-filter-bar">
         <span class="board-filter-bar__label">Filter:</span>
-        <select
-          aria-label="Filter by parent"
-          @change=${(/** @type {Event} */ ev) => {
-            const v =
-              /** @type {HTMLSelectElement} */ (ev.target).value || null;
-            onBoardFilterChange('parent', v);
-          }}
-        >
-          <option value="">All Parents</option>
-          ${filter_options.parents.map(
-            (p) =>
-              html`<option value=${p} ?selected=${current.parent === p}>
-                ${p}
-              </option>`
-          )}
-        </select>
+        ${parentPickerTemplate(current.parent)}
+        ${multiSelectDropdownTemplate({
+          key: TYPES_KEY,
+          label: 'Types',
+          options: filter_options.types,
+          selected: current.types,
+          open: dropdowns.isOpen(TYPES_KEY),
+          onToggle: dropdowns.toggle,
+          onChange: (value, checked) =>
+            toggleListFilter('types', value, checked),
+          id_prefix: FILTER_ID_PREFIX
+        })}
+        ${multiSelectDropdownTemplate({
+          key: PRIORITIES_KEY,
+          label: 'Priority',
+          options: PRIORITY_OPTIONS,
+          selected: current.priorities.map(String),
+          open: dropdowns.isOpen(PRIORITIES_KEY),
+          onToggle: dropdowns.toggle,
+          onChange: togglePriorityFilter,
+          id_prefix: FILTER_ID_PREFIX
+        })}
+        ${filter_options.labels.length > 0
+          ? multiSelectDropdownTemplate({
+              key: LABELS_KEY,
+              label: 'Labels',
+              options: filter_options.labels,
+              selected: current.labels,
+              open: dropdowns.isOpen(LABELS_KEY),
+              onToggle: dropdowns.toggle,
+              onChange: (value, checked) =>
+                toggleListFilter('labels', value, checked),
+              id_prefix: FILTER_ID_PREFIX
+            })
+          : ''}
         <select
           aria-label="Filter by assignee"
           @change=${(/** @type {Event} */ ev) => {
             const v =
               /** @type {HTMLSelectElement} */ (ev.target).value || null;
-            onBoardFilterChange('assignee', v);
+            updateFilters({ assignee: v });
+            doRender();
           }}
         >
           <option value="">All Assignees</option>
@@ -417,44 +848,18 @@ export function createBoardView(options) {
               </option>`
           )}
         </select>
-        <select
-          aria-label="Filter by type"
-          @change=${(/** @type {Event} */ ev) => {
-            const v =
-              /** @type {HTMLSelectElement} */ (ev.target).value || null;
-            onBoardFilterChange('type', v);
-          }}
-        >
-          <option value="">All Types</option>
-          ${filter_options.types.map(
-            (t) =>
-              html`<option value=${t} ?selected=${current.type === t}>
-                ${t}
-              </option>`
-          )}
-        </select>
+        ${hasActiveBoardFilters(current)
+          ? html`<button
+              type="button"
+              class="board-filter-bar__clear"
+              @click=${onClearFilters}
+            >
+              Clear filters
+            </button>`
+          : ''}
         ${columnVisibilityTemplate()}
       </div>
     `;
-  }
-
-  /**
-   * Handle board filter change from any of the three filter dropdowns.
-   *
-   * @param {'parent'|'assignee'|'type'} field
-   * @param {string|null} value
-   */
-  function onBoardFilterChange(field, value) {
-    if (store) {
-      try {
-        store.setState({
-          board: { board_filters: { [field]: value } }
-        });
-      } catch {
-        // ignore store errors
-      }
-    }
-    refreshFromStores();
   }
 
   function template() {
@@ -471,7 +876,7 @@ export function createBoardView(options) {
         )}px"
       >
         ${visible_cols.map((col) =>
-          columnTemplate(col, column_data.get(col.id) || [])
+          columnTemplate(col, column_view.get(col.id) || [])
         )}
       </div>
     `;
@@ -954,19 +1359,6 @@ export function createBoardView(options) {
   mount_element.addEventListener('dragleave', handleDragleave);
   mount_element.addEventListener('drop', handleDrop);
 
-  // Click outside to close columns dropdown
-  /** @param {MouseEvent} e */
-  const clickOutsideHandler = (e) => {
-    const target = /** @type {HTMLElement|null} */ (e.target);
-    if (target && !target.closest('.filter-dropdown')) {
-      if (columns_dropdown_open) {
-        columns_dropdown_open = false;
-        doRender();
-      }
-    }
-  };
-  document.addEventListener('click', clickOutsideHandler);
-
   /**
    * @param {HTMLElement} from
    * @param {HTMLElement} to
@@ -1043,8 +1435,8 @@ export function createBoardView(options) {
           // ignore store errors
         }
       }
+      // Options come from the unfiltered board, so only the view changes
       applyClosedFilter();
-      last_filter_options = getFilterOptions();
       applyBoardFilters();
       doRender();
     } catch {
@@ -1064,38 +1456,67 @@ export function createBoardView(options) {
   }
 
   /**
-   * Apply board filters (parent, assignee, type) with AND logic
-   * to all entries in column_data Map.
+   * True when the item is the parent or one of its descendants. Walks the
+   * item's ancestors, so a parent the index has no row for (such as a
+   * closed epic before the board index arrives) still matches its children.
+   *
+   * @param {string} id
+   * @param {string} parent
+   */
+  function isInParentScope(id, parent) {
+    return id === parent || ancestorIds(dep_index, id).includes(parent);
+  }
+
+  /**
+   * Fill column_view from column_data through the board filters: AND across
+   * filters, OR within one. Parent matches the parent itself and every
+   * descendant in the dependency index.
    */
   function applyBoardFilters() {
-    const board_state = store ? store.getState().board : null;
-    const filters = board_state?.board_filters || {
-      parent: null,
-      assignee: null,
-      type: null
-    };
-    const has_filter =
-      filters.parent != null ||
-      filters.assignee != null ||
-      filters.type != null;
-    if (!has_filter) {
+    const filters = getFilters();
+    if (!hasActiveBoardFilters(filters)) {
+      for (const [col_id, items] of column_data) {
+        column_view.set(col_id, items);
+      }
       return;
     }
+    const parent = filters.parent;
+    const types = new Set(filters.types);
+    const priorities = new Set(filters.priorities);
+    const labels = new Set(filters.labels);
     for (const [col_id, items] of column_data) {
       const filtered = items.filter((it) => {
-        if (filters.parent != null && it.parent !== filters.parent) {
+        if (parent !== null && !isInParentScope(it.id, parent)) {
           return false;
         }
-        if (filters.assignee != null && it.assignee !== filters.assignee) {
+        if (filters.assignee !== null && it.assignee !== filters.assignee) {
           return false;
         }
-        if (filters.type != null && it.issue_type !== filters.type) {
+        if (types.size > 0 && !types.has(String(it.issue_type || ''))) {
+          return false;
+        }
+        if (priorities.size > 0 && !priorities.has(priorityOf(it))) {
+          return false;
+        }
+        if (labels.size > 0 && !labelsOf(it).some((l) => labels.has(l))) {
           return false;
         }
         return true;
       });
-      column_data.set(col_id, filtered);
+      column_view.set(col_id, filtered);
     }
+  }
+
+  /**
+   * Recompute everything derived from the column data: the closed date
+   * filter, the dependency index, the filter options (before any board
+   * filter, so they show all values) and the filtered view.
+   */
+  function recompute() {
+    applyClosedFilter();
+    rebuildIndex();
+    last_filter_options = getFilterOptions();
+    applyBoardFilters();
   }
 
   /**
@@ -1144,16 +1565,13 @@ export function createBoardView(options) {
           }
         }
       }
-      applyClosedFilter();
-      // Compute filter options BEFORE applying board filters
-      // so dropdowns show all available values
-      last_filter_options = getFilterOptions();
-      applyBoardFilters();
+      recompute();
       doRender();
     } catch (err) {
       log('refreshFromStores error: %o', err);
       for (const col of col_defs) {
         column_data.set(col.id, []);
+        column_view.set(col.id, []);
       }
       doRender();
     }
@@ -1257,14 +1675,16 @@ export function createBoardView(options) {
             if (col.subscription === 'ready-issues') {
               items = items.filter((i) => !in_progress_ids.has(i.id));
             }
-            if (col.drop_status === 'closed') {
+            // Same split as refreshFromStores: only is_closed columns
+            // go through the closed date filter
+            if (col.is_closed) {
               column_raw.set(col.id, items);
             } else {
               items.sort(cmpPriorityThenCreated);
               column_data.set(col.id, items);
             }
           }
-          applyClosedFilter();
+          recompute();
           doRender();
         }
       } catch {
@@ -1283,7 +1703,7 @@ export function createBoardView(options) {
       mount_element.removeEventListener('dragover', handleDragover);
       mount_element.removeEventListener('dragleave', handleDragleave);
       mount_element.removeEventListener('drop', handleDrop);
-      document.removeEventListener('click', clickOutsideHandler);
+      dropdowns.dispose();
       // Disconnect ResizeObserver
       if (resize_observer) {
         resize_observer.disconnect();
@@ -1299,10 +1719,12 @@ export function createBoardView(options) {
       mount_element.replaceChildren();
       for (const col of col_defs) {
         column_data.set(col.id, []);
+        column_view.set(col.id, []);
         if (col.is_closed) {
           column_raw.set(col.id, []);
         }
       }
+      dep_index = buildDepIndex([]);
     }
   };
 }
