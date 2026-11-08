@@ -172,14 +172,32 @@ describe('ResizeObserver integration', () => {
     const columns = mount.querySelectorAll('.board-column');
     for (const col of Array.from(columns)) {
       vi.spyOn(col, 'getBoundingClientRect').mockReturnValue(
-        /** @type {any} */ ({ width: 250, height: 400, x: 0, y: 0, top: 0, right: 250, bottom: 400, left: 0 })
+        /** @type {any} */ ({
+          width: 250,
+          height: 400,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 250,
+          bottom: 400,
+          left: 0
+        })
       );
     }
     // Also mock the board root for the resize handler
     const boardRoot = mount.querySelector('.board-root');
     if (boardRoot) {
       vi.spyOn(boardRoot, 'getBoundingClientRect').mockReturnValue(
-        /** @type {any} */ ({ width: 1000, height: 600, x: 0, y: 0, top: 0, right: 1000, bottom: 600, left: 0 })
+        /** @type {any} */ ({
+          width: 1000,
+          height: 600,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 1000,
+          bottom: 600,
+          left: 0
+        })
       );
     }
 
@@ -206,13 +224,31 @@ describe('ResizeObserver integration', () => {
     const columns = mount.querySelectorAll('.board-column');
     for (const col of Array.from(columns)) {
       vi.spyOn(col, 'getBoundingClientRect').mockReturnValue(
-        /** @type {any} */ ({ width: 150, height: 400, x: 0, y: 0, top: 0, right: 150, bottom: 400, left: 0 })
+        /** @type {any} */ ({
+          width: 150,
+          height: 400,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 150,
+          bottom: 400,
+          left: 0
+        })
       );
     }
     const boardRoot = mount.querySelector('.board-root');
     if (boardRoot) {
       vi.spyOn(boardRoot, 'getBoundingClientRect').mockReturnValue(
-        /** @type {any} */ ({ width: 600, height: 600, x: 0, y: 0, top: 0, right: 600, bottom: 600, left: 0 })
+        /** @type {any} */ ({
+          width: 600,
+          height: 600,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 600,
+          bottom: 600,
+          left: 0
+        })
       );
     }
 
@@ -238,13 +274,31 @@ describe('ResizeObserver integration', () => {
     const columns = mount.querySelectorAll('.board-column');
     for (const col of Array.from(columns)) {
       vi.spyOn(col, 'getBoundingClientRect').mockReturnValue(
-        /** @type {any} */ ({ width: 300, height: 400, x: 0, y: 0, top: 0, right: 300, bottom: 400, left: 0 })
+        /** @type {any} */ ({
+          width: 300,
+          height: 400,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 300,
+          bottom: 400,
+          left: 0
+        })
       );
     }
     const boardRoot = mount.querySelector('.board-root');
     if (boardRoot) {
       vi.spyOn(boardRoot, 'getBoundingClientRect').mockReturnValue(
-        /** @type {any} */ ({ width: 1200, height: 600, x: 0, y: 0, top: 0, right: 1200, bottom: 600, left: 0 })
+        /** @type {any} */ ({
+          width: 1200,
+          height: 600,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 1200,
+          bottom: 600,
+          left: 0
+        })
       );
     }
 

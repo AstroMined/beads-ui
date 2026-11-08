@@ -1,12 +1,11 @@
 # beads-ui Settings & Responsive Board PRD
 
-**Status:** Archived (2026-03-24) **Date:** 2026-03-24 **Author:**
-Ryan Peterson **Related:**
-[beads-ui Enhancements PRD](beads-ui-enhancements-prd.md) (predecessor,
-archived)
+**Status:** Archived (2026-03-24) **Date:** 2026-03-24 **Author:** Ryan Peterson
+**Related:** [beads-ui Enhancements PRD](beads-ui-enhancements-prd.md)
+(predecessor, archived)
 
-> **Review Round 1**: Clean (0 findings). All 4 epics passed code review with no remediation needed.
-> **Completion**: 52 of 52 requirements implemented (100%)
+> **Review Round 1**: Clean (0 findings). All 4 epics passed code review with no
+> remediation needed. **Completion**: 52 of 52 requirements implemented (100%)
 > **Epics**: beads-ui-eit.1, beads-ui-eit.2, beads-ui-eit.3, beads-ui-eit.4
 
 ## Context
@@ -327,25 +326,36 @@ commits:
 
 **What Was Completed**
 
-- `column_visibility` state (`Record<string, boolean>`) added to board view closure
-- "Columns N/M" filter dropdown in the board filter bar using existing `.filter-dropdown` CSS pattern
+- `column_visibility` state (`Record<string, boolean>`) added to board view
+  closure
+- "Columns N/M" filter dropdown in the board filter bar using existing
+  `.filter-dropdown` CSS pattern
 - `col_defs` filtering before render: hidden columns excluded from the grid
 - `--board-columns` CSS variable updated to reflect visible column count
-- localStorage persistence keyed by workspace path (`beads-ui.board-col-vis:<workspace_path>`)
-- Reconciliation logic: new columns default visible, removed columns pruned from stored state
+- localStorage persistence keyed by workspace path
+  (`beads-ui.board-col-vis:<workspace_path>`)
+- Reconciliation logic: new columns default visible, removed columns pruned from
+  stored state
 - Subscriptions remain active for hidden columns (render-only concern)
-- 11 tests covering toggle, persistence, reconciliation, and dropdown UI in `board.visibility.test.js`
+- 11 tests covering toggle, persistence, reconciliation, and dropdown UI in
+  `board.visibility.test.js`
 
 **Deviations from Plan**
 
-- No CSS additions were needed; the existing `.filter-dropdown` pattern covered all styling requirements without modification
-- `reconcileVisibility` and persistence functions are internal to the `createBoardView` closure rather than exported, since they are tested through the public board view API
+- No CSS additions were needed; the existing `.filter-dropdown` pattern covered
+  all styling requirements without modification
+- `reconcileVisibility` and persistence functions are internal to the
+  `createBoardView` closure rather than exported, since they are tested through
+  the public board view API
 
 **Key Patterns Established**
 
-- localStorage key pattern for per-workspace board preferences: `beads-ui.board-col-vis:<workspace_path>`
-- Reconciliation pattern for stored-vs-current state divergence (reusable for Phase 3 settings changes)
-- Click-outside handler pattern added to board view (mirrors existing list view pattern)
+- localStorage key pattern for per-workspace board preferences:
+  `beads-ui.board-col-vis:<workspace_path>`
+- Reconciliation pattern for stored-vs-current state divergence (reusable for
+  Phase 3 settings changes)
+- Click-outside handler pattern added to board view (mirrors existing list view
+  pattern)
 
 ### Phase 3: Settings UI
 

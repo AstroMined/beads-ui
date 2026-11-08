@@ -9,8 +9,12 @@ Upstream remote is configured as `upstream`.
 
 ### Branch Roles
 
-- **`main`** - Mirrors upstream. Contains the author's original workflow files (`.beads/`, `.github/`, `AGENTS.md`). Used exclusively as a base for upstream PRs. Do NOT commit our workflow files here.
-- **`develop`** - Our working branch. Author's workflow files removed, replaced with our own Beads setup, `PRIME.md`, and this `CLAUDE.md`. All daily work happens here.
+- **`main`** - Mirrors upstream. Contains the author's original workflow files
+  (`.beads/`, `.github/`, `AGENTS.md`). Used exclusively as a base for upstream
+  PRs. Do NOT commit our workflow files here.
+- **`develop`** - Our working branch. Author's workflow files removed, replaced
+  with our own Beads setup, `PRIME.md`, and this `CLAUDE.md`. All daily work
+  happens here.
 
 ### Syncing with Upstream
 
@@ -44,9 +48,13 @@ When fixing bugs or adding features to contribute back to `mantoni/beads-ui`:
 - `.claude/` - project configuration (settings, commands)
 - `.beads/` - issue tracker (general-purpose, not AI-specific)
 
-These files are tracked on the `develop` branch. The Main/Upstream protection still applies to the fork's branch strategy: do not push our `develop`-specific content to `main` when preparing upstream PRs. When cherry-picking code changes for upstream PRs, exclude these workflow files.
+These files are tracked on the `develop` branch. The Main/Upstream protection
+still applies to the fork's branch strategy: do not push our `develop`-specific
+content to `main` when preparing upstream PRs. When cherry-picking code changes
+for upstream PRs, exclude these workflow files.
 
-The author's original `.beads/`, `.github/`, and `AGENTS.md` remain on `main` to avoid conflicts with upstream.
+The author's original `.beads/`, `.github/`, and `AGENTS.md` remain on `main` to
+avoid conflicts with upstream.
 
 ## Tech Stack
 
@@ -59,9 +67,9 @@ The author's original `.beads/`, `.github/`, and `AGENTS.md` remain on `main` to
 
 ## Issue Tracking (Beads)
 
-This project uses [Beads](https://github.com/steveyegge/beads) (`bd` CLI) for issue tracking.
-Persistence uses the embedded Dolt backend with auto-commit enabled. See `.beads/PRIME.md` for
-full workflow details.
+This project uses [Beads](https://github.com/steveyegge/beads) (`bd` CLI) for
+issue tracking. Persistence uses the embedded Dolt backend with auto-commit
+enabled. See `.beads/PRIME.md` for full workflow details.
 
 ```bash
 bd ready              # Find available work
