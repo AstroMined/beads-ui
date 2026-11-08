@@ -255,6 +255,25 @@ describe('buildDepIndex', () => {
     ]);
   });
 
+  test('treats a pinned bead as done, like bd ready', () => {
+    const index = buildDepIndex([
+      row('pin', { status: 'pinned', blocks: ['b'] }),
+      row('b'),
+      row('x', { blocks: ['pin'] })
+    ]);
+    expect(index.prereqs_of.get('x')).toEqual([]);
+    expect(index.prereqs_of.get('pin')).toEqual([]);
+    expect(canStart(index, 'x')).toBe(true);
+    expect(nodeState(index, 'x')).toBe('ready');
+    expect(nodeState(index, 'pin')).toBe('held');
+    expect(computeWorkOrder(index, 'x').steps).toEqual([]);
+    expect(computeSuggestions(index).most_blocked).toEqual([]);
+    expect(columns(collectGraphSlice(index, 'x'))).toEqual({ x: 0 });
+    expect(
+      columns(collectGraphSlice(index, 'x', { include_closed: true }))
+    ).toEqual({ pin: -1, x: 0 });
+  });
+
   test('treats unknown ids as external and never expands them', () => {
     const index = buildDepIndex([
       row('a', { blocks: ['external:proj:cap'] }),
@@ -618,6 +637,42 @@ describe('collectGraphSlice', () => {
       MAX_COLUMN_NODES
     );
     expect(slice.overflow).toEqual([{ column: 1, ids: ['u00', 'u01', 'u02'] }]);
+  });
+
+  test('drops a prerequisite from the overflow once a deeper level draws it', () => {
+    /** @type {DepIssue[]} */
+    const rows = [];
+    const ids = Array.from(
+      { length: MAX_COLUMN_NODES + 1 },
+      (_, i) => `p${String(i).padStart(2, '0')}`
+    );
+    const last = ids[ids.length - 1];
+    rows.push(row('f', { blocks: ids }));
+    for (const id of ids) {
+      rows.push(row(id, id === ids[0] ? { blocks: [last] } : {}));
+    }
+    const index = buildDepIndex(rows);
+    const slice = collectGraphSlice(index, 'f', { max_depth: 2 });
+    expect(columns(slice)[last]).toBe(-2);
+    expect(slice.overflow).toEqual([]);
+    expect(slice.edges.some((e) => e.from === last && e.to === ids[0])).toBe(
+      true
+    );
+  });
+
+  test('drops a folded unlock once a deeper level draws it', () => {
+    const index = buildDepIndex([
+      row('x'),
+      row('e', { blocks: ['x'] }),
+      row('y', { blocks: ['x'] }),
+      row('c', { parent: 'e', blocks: ['y'] })
+    ]);
+    const shallow = collectGraphSlice(index, 'x', { max_depth: 1 });
+    expect(shallow.folded).toEqual([{ id: 'e', ids: ['c'] }]);
+    const slice = collectGraphSlice(index, 'x', { max_depth: 2 });
+    expect(columns(slice)).toEqual({ c: 2, e: 1, x: 0, y: 1 });
+    expect(slice.folded).toEqual([]);
+    expect(slice.edges.some((e) => e.from === 'y' && e.to === 'c')).toBe(true);
   });
 
   test('marks inherited edges implied when their via is on the canvas', () => {

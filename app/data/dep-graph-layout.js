@@ -283,7 +283,7 @@ export function layoutGraph(input) {
       from: e.from,
       to: e.to,
       kind: e.kind,
-      cycle: e.cycle === true || back,
+      cycle: e.cycle === true,
       path: back ? backPath(s, t, sc === tc, height) : forwardPath(s, t)
     });
   }

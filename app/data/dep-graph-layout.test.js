@@ -157,18 +157,35 @@ describe('layoutGraph', () => {
     );
   });
 
-  test('flags an edge within one column as a cycle', () => {
+  test('arcs an edge within one column without flagging a cycle', () => {
     const layout = layoutGraph({
       nodes: [
         { id: 'p', column: 0 },
-        { id: 'q', column: 0 }
+        { id: 'q', column: 0 },
+        { id: 'r', column: 0 }
       ],
-      edges: [{ from: 'p', to: 'q', kind: 'related' }]
+      edges: [
+        { from: 'p', to: 'q', kind: 'blocks' },
+        { from: 'q', to: 'r', kind: 'blocks', cycle: true }
+      ]
     });
 
     const edge = edgeBetween(layout, 'p', 'q');
-    expect(edge.cycle).toBe(true);
+    expect(edge.cycle).toBe(false);
     expect(edge.path.startsWith(`M ${PADDING + NODE_WIDTH} `)).toBe(true);
+    expect(edgeBetween(layout, 'q', 'r').cycle).toBe(true);
+  });
+
+  test('flags a back edge as a cycle only when its input says so', () => {
+    const layout = layoutGraph({
+      nodes: [
+        { id: 'a', column: -1 },
+        { id: 'b', column: 0 }
+      ],
+      edges: [{ from: 'b', to: 'a', kind: 'blocks' }]
+    });
+
+    expect(edgeBetween(layout, 'b', 'a').cycle).toBe(false);
   });
 
   test('produces identical output for shuffled input', () => {

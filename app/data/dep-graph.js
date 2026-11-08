@@ -37,8 +37,23 @@ export const SEARCH_RESULT_LIMIT = 20;
 /** Containment edge type, merged with the `parent` field. */
 const PARENT_CHILD_TYPE = 'parent-child';
 
-/** The only status that counts as done. */
+/** The status shown as `closed` in the graph. */
 const DONE_STATUS = 'closed';
+
+/**
+ * Statuses that count as done for ordering. bd 0.63.3 leaves both out of
+ * the open set, so neither ever blocks nor waits on anything.
+ */
+const DONE_STATUSES = new Set([DONE_STATUS, 'pinned']);
+
+/**
+ * Whether a status counts as done for ordering. An unknown id has none.
+ *
+ * @param {string | undefined} status
+ */
+function isDoneStatus(status) {
+  return status !== undefined && DONE_STATUSES.has(status);
+}
 
 /** The only dependency type bd 0.63.3 treats as blocking. */
 const BD_BLOCKING_DEP_TYPE = 'blocks';
@@ -417,11 +432,12 @@ function stronglyConnected(nodes, succ) {
  *
  * Effective prerequisites of an open X, one entry per id with precedence
  * blocks, then inherited, then child:
- * 1. `blocks`: X's direct blockers that are not closed.
- * 2. `inherited`: the not-closed blockers of every ancestor A, `via` A, the
+ * 1. `blocks`: X's direct blockers that are not done.
+ * 2. `inherited`: the not-done blockers of every ancestor A, `via` A, the
  *    nearest ancestor first.
  * 3. `child`: X's open children.
- * A row without a status counts as open.
+ * Done means a status in DONE_STATUSES (closed or pinned); a done X has no
+ * prerequisites. A row without a status counts as open.
  *
  * @param {DepIssue[]} rows
  * @returns {DepIndex}
@@ -507,7 +523,7 @@ export function buildDepIndex(rows) {
   }
 
   /** @param {string} id */
-  const isOpenOrUnknown = (id) => entries.get(id)?.status !== DONE_STATUS;
+  const isOpenOrUnknown = (id) => !isDoneStatus(entries.get(id)?.status);
 
   /** @type {DepIndex} */
   const index = {
@@ -532,7 +548,7 @@ export function buildDepIndex(rows) {
     const id = entry.id;
     /** @type {Map<string, DepLink>} */
     const links = new Map();
-    if (entry.status !== DONE_STATUS) {
+    if (!isDoneStatus(entry.status)) {
       for (const b of entry.blockers) {
         if (isOpenOrUnknown(b)) {
           links.set(b, { id: b, reason: 'blocks', via: null });
@@ -1016,7 +1032,7 @@ export function computeSuggestions(index, options = {}) {
     .sort((a, b) => b.downstream - a.downstream || cmp(a.id, b.id))
     .slice(0, limit);
   const most_blocked = index.ids
-    .filter((id) => index.entries.get(id)?.status !== DONE_STATUS)
+    .filter((id) => !isDoneStatus(index.entries.get(id)?.status))
     .map((id) => ({ id, upstream: reachCount(index.prereqs_of, id) }))
     .filter((s) => s.upstream > 0)
     .sort((a, b) => b.upstream - a.upstream || cmp(a.id, b.id))
@@ -1026,7 +1042,7 @@ export function computeSuggestions(index, options = {}) {
 
 /**
  * Links toward prerequisites for a slice. With `include_closed`, raw
- * blockers and children are added where either end is closed.
+ * blockers and children are added where either end is done.
  *
  * @param {DepIndex} index
  * @param {string} id
@@ -1041,8 +1057,8 @@ function sliceUpLinks(index, id, include_closed) {
   }
   /** @param {string} other */
   const either_closed = (other) =>
-    entry.status === DONE_STATUS ||
-    index.entries.get(other)?.status === DONE_STATUS;
+    isDoneStatus(entry.status) ||
+    isDoneStatus(index.entries.get(other)?.status);
   /** @type {DepLink[]} */
   const extra = [];
   for (const b of entry.blockers) {
@@ -1074,8 +1090,8 @@ function sliceDownLinks(index, id, include_closed) {
   }
   /** @param {string} other */
   const either_closed = (other) =>
-    entry.status === DONE_STATUS ||
-    index.entries.get(other)?.status === DONE_STATUS;
+    isDoneStatus(entry.status) ||
+    isDoneStatus(index.entries.get(other)?.status);
   /** @type {DepLink[]} */
   const extra = [];
   for (const d of entry.dependents) {
@@ -1113,7 +1129,7 @@ function sliceAtDepth(index, focus, depth, include_closed, expanded) {
   /** @param {string} id */
   const expandable = (id) =>
     id === focus ||
-    (index.entries.has(id) && index.entries.get(id)?.status !== DONE_STATUS);
+    (index.entries.has(id) && !isDoneStatus(index.entries.get(id)?.status));
 
   let frontier = [focus];
   for (let level = 1; level <= depth && frontier.length > 0; level++) {
@@ -1203,6 +1219,20 @@ function sliceAtDepth(index, focus, depth, include_closed, expanded) {
     frontier = visible;
   }
 
+  /** @param {string} id */
+  const not_drawn = (id) => !column.has(id);
+  const overflow_left = overflow
+    .map((o) => ({ column: o.column, ids: o.ids.filter(not_drawn) }))
+    .filter((o) => o.ids.length > 0);
+  for (const [via, ids] of folded) {
+    const left = ids.filter(not_drawn);
+    if (left.length > 0) {
+      folded.set(via, left);
+    } else {
+      folded.delete(via);
+    }
+  }
+
   const node_ids = Array.from(column.keys()).sort(cmpStr);
   /** @type {SliceNode[]} */
   const nodes = node_ids.map((id) => ({
@@ -1254,7 +1284,7 @@ function sliceAtDepth(index, focus, depth, include_closed, expanded) {
   return {
     nodes,
     edges,
-    overflow: overflow.sort((a, b) => a.column - b.column),
+    overflow: overflow_left.sort((a, b) => a.column - b.column),
     folded: Array.from(folded.keys())
       .sort(cmpStr)
       .map((id) => ({ id, ids: (folded.get(id) ?? []).sort(cmpStr) })),
@@ -1275,8 +1305,10 @@ function sliceAtDepth(index, focus, depth, include_closed, expanded) {
  *   the canvas is folded under it unless the container is in `expanded`.
  * - Inherited edges are `implied` when their `via` node is on the canvas, so
  *   the view does not draw them.
- * - `include_closed` adds closed neighbours as leaves; a closed focus is
- *   still expanded.
+ * - An id a deeper level draws is dropped from `overflow` and `folded`, so
+ *   it is counted once.
+ * - `include_closed` adds done (closed or pinned) neighbours as leaves; a
+ *   done focus is still expanded.
  *
  * @param {DepIndex} index
  * @param {string} focus
@@ -1349,7 +1381,7 @@ export function searchFocusCandidates(index, query, options = {}) {
     }
   }
   /** @param {DepIndexEntry} e */
-  const closed = (e) => (e.status === DONE_STATUS ? 1 : 0);
+  const closed = (e) => (isDoneStatus(e.status) ? 1 : 0);
   return hits
     .sort(
       (a, b) =>
