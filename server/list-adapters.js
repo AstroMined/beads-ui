@@ -57,6 +57,13 @@ const EXTERNAL_REF_PREFIX = 'external:';
 const TOMBSTONE_STATUS = 'tombstone';
 
 /**
+ * bd's error when none of the ids given to `bd show` exist: stderr
+ * `no issue found matching ...` or the JSON `error`
+ * `no issues found matching the provided IDs`.
+ */
+const BD_NOT_FOUND_PATTERN = /no issues? found matching/i;
+
+/**
  * The open set: every non-closed, non-pinned bead (see `rules.open_set` in
  * `server/fixtures/bd-ready-parity.json`).
  */
@@ -375,6 +382,18 @@ export function projectGraphIssue(row) {
  * @typedef {Object} FetchListResultSuccess
  * @property {true} ok
  * @property {Array<{ id: string, updated_at: number, closed_at: number | null } & Record<string, unknown>>} items
+ * @property {true} [partial] - Some rows could not be resolved and are
+ * retried by the next fetch, so a refresh pass must not count as clean.
+ */
+
+/**
+ * Options for `fetchListForSubscription`.
+ *
+ * @typedef {Object} FetchListOptions
+ * @property {string} [cwd] - Working directory for bd commands.
+ * @property {symbol} [pass] - Token of the refresh pass making the call.
+ * Callers with the same token share one in-flight open-set spawn even
+ * when the workspace has no manifest fingerprint.
  */
 
 /**
@@ -389,15 +408,17 @@ export function projectGraphIssue(row) {
 
 /**
  * One open-set fetch per workspace. `fingerprint` is the Dolt manifest
- * fingerprint read before the spawn.
+ * fingerprint read before the spawn; `pass` is the token of the refresh pass
+ * that started it, or null outside a pass.
  *
- * @typedef {{ fingerprint: string | null, pending: boolean, promise: Promise<OpenSetResult> }} OpenSetEntry
+ * @typedef {{ fingerprint: string | null, pass: symbol | null, promise: Promise<OpenSetResult> }} OpenSetEntry
  */
 
 /**
  * Latest open-set fetch per workspace directory. An entry is reused while its
- * fingerprint is unchanged and non-null; with a null fingerprint (no embedded
- * Dolt manifest) it is shared only while in flight.
+ * fingerprint is unchanged and non-null. With a null fingerprint (no embedded
+ * Dolt manifest) nothing tells a later write apart, so it is shared only
+ * with callers of the refresh pass that started it.
  *
  * @type {Map<string, OpenSetEntry>}
  */
@@ -405,7 +426,7 @@ const open_set_by_cwd = new Map();
 
 /**
  * Closed-id resolver cache per workspace directory: a projected row for each
- * resolved id outside the open set, or null when bd could not resolve it.
+ * resolved id outside the open set, or null when bd reported it missing.
  *
  * @type {Map<string, Map<string, GraphRow | null>>}
  */
@@ -491,31 +512,49 @@ async function runOpenSet(cwd) {
 }
 
 /**
+ * Whether a caller may reuse an open-set entry. An unchanged non-null
+ * fingerprint reuses it, pending or settled. A null fingerprint cannot rule
+ * out a write since the spawn read the database, so only callers of the
+ * refresh pass that started the spawn reuse it; a write landing during that
+ * pass fires the watcher again, and the next pass spawns afresh.
+ *
+ * @param {OpenSetEntry | undefined} entry
+ * @param {string | null} fingerprint
+ * @param {symbol | null} pass
+ * @returns {entry is OpenSetEntry}
+ */
+function canReuseOpenSet(entry, fingerprint, pass) {
+  if (!entry || entry.fingerprint !== fingerprint) {
+    return false;
+  }
+  if (fingerprint !== null) {
+    return true;
+  }
+  return pass !== null && entry.pass === pass;
+}
+
+/**
  * The open set of a workspace, shared by every open-set type in a refresh
- * pass: concurrent callers share one in-flight spawn, and an unchanged
- * non-null manifest fingerprint reuses the last successful rows. Failures are
- * never reused.
+ * pass: callers share one in-flight spawn, and an unchanged non-null manifest
+ * fingerprint reuses the last successful rows (see `canReuseOpenSet`).
+ * Failures are never reused.
  *
  * @param {string | undefined} cwd
+ * @param {symbol | null} pass - Token of the calling refresh pass, or null.
  * @returns {Promise<OpenSetResult>}
  */
-function loadOpenSet(cwd) {
+function loadOpenSet(cwd, pass) {
   const key = workspaceDir(cwd);
   const fingerprint = readManifestFingerprint(key);
   const entry = open_set_by_cwd.get(key);
-  if (
-    entry &&
-    entry.fingerprint === fingerprint &&
-    (entry.pending || fingerprint !== null)
-  ) {
+  if (canReuseOpenSet(entry, fingerprint, pass)) {
     return entry.promise;
   }
   const promise = runOpenSet(cwd);
   /** @type {OpenSetEntry} */
-  const created = { fingerprint, pending: true, promise };
+  const created = { fingerprint, pass, promise };
   open_set_by_cwd.set(key, created);
   promise.then((result) => {
-    created.pending = false;
     if (!result.ok && open_set_by_cwd.get(key) === created) {
       open_set_by_cwd.delete(key);
     }
@@ -555,19 +594,44 @@ function referencedOutsideIds(rows, open_ids) {
 }
 
 /**
+ * Whether a failed bd run is bd's "no issue found" error.
+ *
+ * @param {{ code: number, stdoutJson?: unknown, stderr?: string } | undefined} res
+ * @returns {boolean}
+ */
+function isBdNotFound(res) {
+  const json = /** @type {{ error?: unknown } | null | undefined} */ (
+    res?.stdoutJson
+  );
+  const json_error =
+    json && typeof json === 'object' && typeof json.error === 'string'
+      ? json.error
+      : '';
+  return (
+    BD_NOT_FOUND_PATTERN.test(String(res?.stderr || '')) ||
+    BD_NOT_FOUND_PATTERN.test(json_error)
+  );
+}
+
+/**
  * Resolve one batch of ids with `bd show`. A missing id is cached as null; a
- * batch whose ids are all missing fails in bd, so after the retries the whole
- * batch is cached as null too.
+ * batch whose ids are all missing fails in bd with its not-found error, so
+ * then the whole batch is cached as null too. Any other failure leaves the
+ * batch uncached, so the next fetch retries it.
  *
  * @param {Map<string, GraphRow | null>} cache
  * @param {string[]} ids
  * @param {string | undefined} cwd
+ * @returns {Promise<boolean>} False when the batch was left unresolved.
  */
 async function resolveOutsideBatch(cache, ids, cwd) {
   const args = ['show', ...ids, '--json'];
   const res = await runBdJsonWithRetry(args, { cwd });
   if (bdFailure(res)) {
-    log('bd show failed for %d ids (code=%s)', ids.length, res?.code);
+    if (!isBdNotFound(res)) {
+      log('bd show failed for %d ids (code=%s)', ids.length, res?.code);
+      return false;
+    }
   } else {
     const wanted = new Set(ids);
     for (const row of toRows(res.stdoutJson)) {
@@ -582,6 +646,7 @@ async function resolveOutsideBatch(cache, ids, cwd) {
       cache.set(id, null);
     }
   }
+  return true;
 }
 
 /**
@@ -592,7 +657,8 @@ async function resolveOutsideBatch(cache, ids, cwd) {
  *
  * @param {GraphRow[]} open_rows - Projected open set.
  * @param {string | undefined} cwd
- * @returns {Promise<GraphRow[]>}
+ * @returns {Promise<{ rows: GraphRow[], complete: boolean }>} `complete` is
+ * false when a batch failed and its ids are left for the next fetch.
  */
 async function resolveOutsideRows(open_rows, cwd) {
   const key = workspaceDir(cwd);
@@ -607,22 +673,24 @@ async function resolveOutsideRows(open_rows, cwd) {
   }
   const referenced = referencedOutsideIds(open_rows, open_ids);
   const missing = referenced.filter((id) => !cache.has(id));
+  let complete = true;
   for (let i = 0; i < missing.length; i += CLOSED_ID_BATCH_MAX) {
-    await resolveOutsideBatch(
+    const resolved = await resolveOutsideBatch(
       cache,
       missing.slice(i, i + CLOSED_ID_BATCH_MAX),
       cwd
     );
+    complete = complete && resolved;
   }
   /** @type {GraphRow[]} */
-  const out = [];
+  const rows = [];
   for (const id of referenced) {
     const row = cache.get(id);
     if (row) {
-      out.push(row);
+      rows.push(row);
     }
   }
-  return out;
+  return { rows, complete };
 }
 
 /**
@@ -632,17 +700,21 @@ async function resolveOutsideRows(open_rows, cwd) {
  *
  * @param {string} type
  * @param {string | undefined} cwd
+ * @param {symbol | null} pass
  * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
  */
-async function fetchFromOpenSet(type, cwd) {
-  const open = await loadOpenSet(cwd);
+async function fetchFromOpenSet(type, cwd, pass) {
+  const open = await loadOpenSet(cwd, pass);
   if (!open.ok) {
     return open;
   }
   if (type === GRAPH_ISSUES_TYPE) {
     const projected = open.rows.map(projectGraphIssue);
     const outside = await resolveOutsideRows(projected, cwd);
-    return { ok: true, items: normalizeIssueList([...projected, ...outside]) };
+    const items = normalizeIssueList([...projected, ...outside.rows]);
+    return outside.complete
+      ? { ok: true, items }
+      : { ok: true, items, partial: true };
   }
   if (type === 'in-progress-issues') {
     const rows = open.rows.filter((row) => row.status === IN_PROGRESS_STATUS);
@@ -660,10 +732,11 @@ async function fetchFromOpenSet(type, cwd) {
  *
  * @param {string} type
  * @param {string | undefined} cwd
+ * @param {symbol | null} pass
  * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
  */
-async function fetchDerived(type, cwd) {
-  const open = await loadOpenSet(cwd);
+async function fetchDerived(type, cwd, pass) {
+  const open = await loadOpenSet(cwd, pass);
   if (!open.ok) {
     return open;
   }
@@ -695,11 +768,12 @@ async function fetchDerived(type, cwd) {
  * Errors do not throw; they are surfaced as a structured object.
  *
  * @param {{ type: string, params?: Record<string, string | number | boolean> }} spec
- * @param {{ cwd?: string }} [options] - Optional working directory for bd command
+ * @param {FetchListOptions} [options]
  * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
  */
 export async function fetchListForSubscription(spec, options = {}) {
   const type = String(spec.type);
+  const pass = options.pass ?? null;
   /** @type {string[]} */
   let args;
   try {
@@ -713,13 +787,13 @@ export async function fetchListForSubscription(spec, options = {}) {
 
   try {
     if (OPEN_SET_TYPES.has(type)) {
-      return await fetchFromOpenSet(type, options.cwd);
+      return await fetchFromOpenSet(type, options.cwd, pass);
     }
     if (
       DERIVED_TYPES.has(type) &&
       (await shouldDeriveReady(workspaceDir(options.cwd)))
     ) {
-      return await fetchDerived(type, options.cwd);
+      return await fetchDerived(type, options.cwd, pass);
     }
     const res = await runBdJsonWithRetry(args, { cwd: options.cwd });
     const failure = bdFailure(res);

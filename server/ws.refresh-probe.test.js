@@ -172,6 +172,20 @@ describe('refresh pass change probe', () => {
     expect(mock_fetch).toHaveBeenCalledTimes(2);
   });
 
+  test('runs again when the previous pass left rows unresolved', async () => {
+    await setup();
+    mock_fetch.mockImplementationOnce(async () => ({
+      ok: true,
+      items: ITEMS,
+      partial: true
+    }));
+
+    await watcherPass();
+    await watcherPass();
+
+    expect(mock_fetch).toHaveBeenCalledTimes(2);
+  });
+
   test('a workspace change resets the probe', async () => {
     const { setWorkspace } = await setup();
     await watcherPass();

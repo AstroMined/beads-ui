@@ -12,6 +12,7 @@ import {
   makeOk
 } from '../app/protocol.js';
 import { runInBackground } from './bd-priority.js';
+import { resetBdVersion } from './bd-version.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
 import { resolveWorkspaceDatabase } from './db.js';
 import { readManifestFingerprint } from './dolt-manifest.js';
@@ -46,6 +47,9 @@ let REFRESH_DEBOUNCE_MS = 75;
 let PASS_RUNNING = null;
 /** @type {Promise<void> | null} */
 let PASS_WAITING = null;
+
+/** Description of the per-pass token passed to the list adapters. */
+const REFRESH_PASS_TOKEN_NAME = 'refresh-pass';
 
 /**
  * Change probe: the manifest fingerprint read at the start of the last pass
@@ -217,11 +221,13 @@ async function runRefreshPass() {
     return;
   }
   const specs = collectActiveListSpecs();
+  // The pass token lets this pass's fetches share one open-set spawn
+  const pass = Symbol(REFRESH_PASS_TOKEN_NAME);
   // Run refreshes concurrently; locking is handled per key in the registry
   const results = await Promise.all(
     specs.map(async (spec) => {
       try {
-        return await refreshAndPublish(spec);
+        return await refreshAndPublish(spec, pass);
       } catch (err) {
         log('refresh threw for %s %o', keyOf(spec), err);
         return false;
@@ -440,24 +446,28 @@ function emitSubscriptionDelete(ws, client_id, key, issue_id) {
  * per-subscription full-issue envelopes to subscribers. Serialized per key.
  *
  * @param {{ type: string, params?: Record<string, string|number|boolean> }} spec
- * @returns {Promise<boolean>} False when the adapter fetch failed.
+ * @param {symbol} pass - Token of the refresh pass making the call.
+ * @returns {Promise<boolean>} False when the adapter fetch failed or left
+ * rows unresolved.
  */
-async function refreshAndPublish(spec) {
+async function refreshAndPublish(spec, pass) {
   const key = keyOf(spec);
   return registry.withKeyLock(key, async () => {
     const res = await fetchListForSubscription(spec, {
-      cwd: CURRENT_WORKSPACE?.root_dir
+      cwd: CURRENT_WORKSPACE?.root_dir,
+      pass
     });
     if (!res.ok) {
       log('refresh failed for %s: %s %o', key, res.error.message, res.error);
       return false;
     }
+    const clean = res.partial !== true;
     const items = applyClosedIssuesFilter(spec, res.items);
     const prev_size = registry.get(key)?.itemsById.size || 0;
     const delta = registry.applyItems(key, items);
     const entry = registry.get(key);
     if (!entry || entry.subscribers.size === 0) {
-      return true;
+      return clean;
     }
     /** @type {Map<string, any>} */
     const by_id = new Map();
@@ -494,7 +504,7 @@ async function refreshAndPublish(spec) {
         }
       }
     }
-    return true;
+    return clean;
   });
 }
 
@@ -541,6 +551,7 @@ export function attachWsServer(http_server, options = {}) {
     root_dir: initial_root,
     db_path: initial_db.path
   };
+  resetBdVersion(initial_root);
 
   if (options.watcher) {
     DB_WATCHER = options.watcher;
@@ -637,6 +648,7 @@ export function attachWsServer(http_server, options = {}) {
       root_dir: resolved_root,
       db_path: new_db.path
     };
+    resetBdVersion(resolved_root);
 
     const changed = new_db.path !== old_path;
 
@@ -751,6 +763,83 @@ function publishDeltaToOthers(key, items, delta, except_ws, except_client_id) {
 }
 
 /**
+ * Attach a client's list subscription, fetch its snapshot, apply it and send
+ * it. The caller holds the key lock, as `refreshAndPublish` does, so a pass
+ * already holding the lock finishes before this fetch reads, and a pass that
+ * starts once the key is attached refreshes it after this snapshot. A
+ * snapshot that misses a write can therefore never overwrite newer state.
+ * On failure the attach is undone and the client id's previous
+ * subscription, if any, is restored.
+ *
+ * @param {WebSocket} ws
+ * @param {string} client_id
+ * @param {{ type: string, params?: Record<string, string|number|boolean> }} spec
+ * @param {string} key
+ * @returns {Promise<{ code: string, message: string, details: Record<string, unknown> } | null>}
+ * The error to reply with, or null when the snapshot was sent.
+ */
+async function subscribeUnderKeyLock(ws, client_id, spec, key) {
+  const s = ensureSubs(ws);
+  const previous = s.list_subs?.get(client_id);
+  const undoAttach = () => {
+    detachClientSub(ws, s, client_id);
+    if (previous) {
+      registry.attach(previous.spec, ws);
+      s.list_subs?.set(client_id, previous);
+    }
+  };
+  registry.attach(spec, ws);
+  s.list_subs?.set(client_id, { key, spec });
+
+  /** @type {Awaited<ReturnType<typeof fetchListForSubscription>>} */
+  let initial;
+  try {
+    initial = await fetchListForSubscription(spec, {
+      cwd: CURRENT_WORKSPACE?.root_dir
+    });
+  } catch (err) {
+    log('subscribe-list snapshot error for %s: %o', key, err);
+    undoAttach();
+    const message =
+      (err && /** @type {any} */ (err).message) || 'Failed to load list';
+    return { code: 'bd_error', message: String(message), details: { key } };
+  }
+
+  if (!initial.ok) {
+    log(
+      'initial snapshot failed for %s: %s %o',
+      key,
+      initial.error.message,
+      initial.error
+    );
+    undoAttach();
+    return {
+      code: initial.error.code,
+      message: initial.error.message,
+      details: { ...(initial.error.details || {}), key }
+    };
+  }
+
+  try {
+    const items = applyClosedIssuesFilter(spec, initial.items);
+    const delta = registry.applyItems(key, items);
+    emitSubscriptionSnapshot(ws, client_id, key, items);
+    // Existing subscribers of this key hold the previous items; send
+    // them what the newcomer's fetch changed.
+    publishDeltaToOthers(key, items, delta, ws, client_id);
+  } catch (err) {
+    log('subscribe-list snapshot error for %s: %o', key, err);
+    undoAttach();
+    return {
+      code: 'bd_error',
+      message: 'Failed to publish snapshot',
+      details: { key }
+    };
+  }
+  return null;
+}
+
+/**
  * Handle an incoming message frame and respond to the same socket.
  *
  * @param {WebSocket} ws
@@ -842,56 +931,15 @@ export async function handleMessage(ws, data) {
       ws.send(JSON.stringify(makeError(req, code, message, details)));
     };
 
-    /** @type {Awaited<ReturnType<typeof fetchListForSubscription>> | null} */
-    let initial = null;
-    try {
-      initial = await fetchListForSubscription(spec, {
-        cwd: CURRENT_WORKSPACE?.root_dir
-      });
-    } catch (err) {
-      log('subscribe-list snapshot error for %s: %o', key, err);
-      const message =
-        (err && /** @type {any} */ (err).message) || 'Failed to load list';
-      replyWithError('bd_error', String(message), { key });
+    const failure = await registry.withKeyLock(key, () =>
+      subscribeUnderKeyLock(ws, client_id, spec, key)
+    );
+    if (failure) {
+      replyWithError(failure.code, failure.message, failure.details);
       return;
     }
 
-    if (!initial.ok) {
-      log(
-        'initial snapshot failed for %s: %s %o',
-        key,
-        initial.error.message,
-        initial.error
-      );
-      const details = { ...(initial.error.details || {}), key };
-      replyWithError(initial.error.code, initial.error.message, details);
-      return;
-    }
-
-    const s = ensureSubs(ws);
-    const { key: attached_key } = registry.attach(spec, ws);
-    s.list_subs?.set(client_id, { key: attached_key, spec });
-
-    try {
-      await registry.withKeyLock(attached_key, async () => {
-        const items = applyClosedIssuesFilter(
-          spec,
-          initial ? initial.items : []
-        );
-        const delta = registry.applyItems(attached_key, items);
-        emitSubscriptionSnapshot(ws, client_id, attached_key, items);
-        // Existing subscribers of this key hold the previous items; send
-        // them what the newcomer's fetch changed.
-        publishDeltaToOthers(attached_key, items, delta, ws, client_id);
-      });
-    } catch (err) {
-      log('subscribe-list snapshot error for %s: %o', attached_key, err);
-      detachClientSub(ws, s, client_id);
-      replyWithError('bd_error', 'Failed to publish snapshot', { key });
-      return;
-    }
-
-    ws.send(JSON.stringify(makeOk(req, { id: client_id, key: attached_key })));
+    ws.send(JSON.stringify(makeOk(req, { id: client_id, key })));
     return;
   }
 
@@ -1503,6 +1551,7 @@ export async function handleMessage(ws, data) {
       root_dir: resolved,
       db_path: new_db.path
     };
+    resetBdVersion(resolved);
 
     const changed = new_db.path !== old_path;
 

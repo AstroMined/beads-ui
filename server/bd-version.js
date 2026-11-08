@@ -61,8 +61,9 @@ async function readBdVersion(cwd) {
 }
 
 /**
- * The bd version for a workspace, read once per `cwd`. A failed read is not
- * memoized, so the next call tries again.
+ * The bd version for a workspace, read once per `cwd` until
+ * `resetBdVersion` forgets it. A failed read is not memoized, so the next
+ * call tries again.
  *
  * @param {string} cwd - Workspace directory.
  * @returns {Promise<string | null>} Semver such as `0.63.3`, or null.
@@ -80,6 +81,18 @@ export function getBdVersion(cwd) {
     }
   });
   return promise;
+}
+
+/**
+ * Forget the memoized bd version of a workspace, so the next call reads
+ * `bd --version` again. Called on every workspace bind, so a bd upgrade is
+ * picked up by the next bind instead of only by a server restart.
+ *
+ * @param {string} cwd - Workspace directory.
+ */
+export function resetBdVersion(cwd) {
+  version_by_cwd.delete(cwd);
+  mismatch_logged.delete(cwd);
 }
 
 /**

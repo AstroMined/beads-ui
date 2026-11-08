@@ -371,19 +371,59 @@ describe('open set sharing', () => {
     expect(spawnCount('list')).toBe(2);
   });
 
-  test('a null fingerprint shares only an in-flight fetch', async () => {
+  test('a null fingerprint shares a fetch only within one refresh pass', async () => {
     fingerprintMock.mockReturnValue(null);
     answerBd(OPEN_ROWS);
     const cwd = '/ws/no-manifest';
+    const pass = Symbol('pass-1');
 
     await Promise.all([
-      fetchListForSubscription({ type: 'all-issues' }, { cwd }),
-      fetchListForSubscription({ type: 'in-progress-issues' }, { cwd })
+      fetchListForSubscription({ type: 'all-issues' }, { cwd, pass }),
+      fetchListForSubscription({ type: 'in-progress-issues' }, { cwd, pass })
     ]);
     expect(spawnCount('list')).toBe(1);
 
     await fetchListForSubscription({ type: 'all-issues' }, { cwd });
     expect(spawnCount('list')).toBe(2);
+
+    await fetchListForSubscription(
+      { type: 'all-issues' },
+      { cwd, pass: Symbol('pass-2') }
+    );
+    expect(spawnCount('list')).toBe(3);
+  });
+
+  test('a null fingerprint never joins a pending fetch another caller started', async () => {
+    fingerprintMock.mockReturnValue(null);
+    const cwd = '/ws/no-manifest-pending';
+    const before_write = [{ id: 'P-1', status: 'open', title: 'Before' }];
+    const after_write = [{ id: 'P-1', status: 'open', title: 'After' }];
+    /** @type {(value: { code: number, stdoutJson: unknown }) => void} */
+    let finish_first = () => {};
+    runBdJsonMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish_first = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ code: 0, stdoutJson: after_write });
+
+    // A subscribe snapshot starts the spawn, a write lands, and the refresh
+    // pass the write triggers asks for the open set while that spawn runs.
+    const subscribe = fetchListForSubscription({ type: 'all-issues' }, { cwd });
+    const refresh = fetchListForSubscription(
+      { type: 'all-issues' },
+      { cwd, pass: Symbol('pass-after-write') }
+    );
+    finish_first({ code: 0, stdoutJson: before_write });
+
+    const refreshed = await refresh;
+    await subscribe;
+    expect(spawnCount('list')).toBe(2);
+    expect(refreshed.ok && refreshed.items.map((it) => it.title)).toEqual([
+      'After'
+    ]);
   });
 
   test('a failed open set is not reused', async () => {
@@ -469,6 +509,68 @@ describe('graph-issues', () => {
     runBdJsonMock.mockReset();
     fingerprintMock.mockReset();
     fingerprintMock.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** An open bead blocked by a closed bead outside the open set. */
+  const BLOCKED_CHILD = {
+    id: 'F-1',
+    status: 'open',
+    dependencies: [{ depends_on_id: 'F-DONE', type: 'blocks' }]
+  };
+
+  test('a failed bd show is retried by the next fetch and marks it partial', async () => {
+    vi.stubEnv('BDUI_BD_LIST_RETRIES', '0');
+    const cwd = '/ws/graph-show-failure';
+    answerBd([BLOCKED_CHILD], [{ id: 'F-DONE', status: 'closed' }]);
+    runBdJsonMock.mockImplementationOnce(async () => ({
+      code: 0,
+      stdoutJson: [BLOCKED_CHILD]
+    }));
+    runBdJsonMock.mockImplementationOnce(async () => ({
+      code: 1,
+      stderr: 'database is locked'
+    }));
+
+    const failed = await fetchListForSubscription(
+      { type: GRAPH_ISSUES_TYPE },
+      { cwd }
+    );
+    expect(failed.ok && failed.items.map((it) => it.id)).toEqual(['F-1']);
+    expect(failed.ok && failed.partial).toBe(true);
+
+    const retried = await fetchListForSubscription(
+      { type: GRAPH_ISSUES_TYPE },
+      { cwd }
+    );
+    expect(spawnCount('show')).toBe(2);
+    expect(retried.ok && retried.items.map((it) => it.id)).toEqual([
+      'F-1',
+      'F-DONE'
+    ]);
+    expect(retried.ok && retried.partial).toBeUndefined();
+  });
+
+  test('bd show reporting every id missing caches them as missing', async () => {
+    vi.stubEnv('BDUI_BD_LIST_RETRIES', '0');
+    const cwd = '/ws/graph-show-not-found';
+    runBdJsonMock.mockImplementation(async (/** @type {string[]} */ args) =>
+      args[0] === 'list'
+        ? { code: 0, stdoutJson: [BLOCKED_CHILD] }
+        : { code: 1, stderr: 'Error: no issue found matching "F-DONE"' }
+    );
+
+    const first = await fetchListForSubscription(
+      { type: GRAPH_ISSUES_TYPE },
+      { cwd }
+    );
+    await fetchListForSubscription({ type: GRAPH_ISSUES_TYPE }, { cwd });
+
+    expect(first.ok && first.partial).toBeUndefined();
+    expect(spawnCount('show')).toBe(1);
   });
 
   test('projectGraphIssue keeps the graph fields and reduces edges', () => {

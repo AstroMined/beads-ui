@@ -7,6 +7,7 @@ import {
   DERIVED_READY_BD_VERSION,
   getBdVersion,
   parseBdVersion,
+  resetBdVersion,
   shouldDeriveReady
 } from './bd-version.js';
 import { runBd, runBdJson } from './bd.js';
@@ -246,6 +247,18 @@ describe('bd version', () => {
       DERIVED_READY_BD_VERSION
     ]);
     expect(runBdMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('resetBdVersion makes the next call read bd --version again', async () => {
+    runBdMock
+      .mockResolvedValueOnce(bdVersionOutput(DERIVED_READY_BD_VERSION))
+      .mockResolvedValueOnce(bdVersionOutput(OTHER_BD_VERSION));
+
+    expect(await shouldDeriveReady('/ws/upgraded')).toBe(true);
+    resetBdVersion('/ws/upgraded');
+
+    expect(await shouldDeriveReady('/ws/upgraded')).toBe(false);
+    expect(runBdMock).toHaveBeenCalledTimes(2);
   });
 
   test('a failed read is retried on the next call and never derives', async () => {
