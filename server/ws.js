@@ -583,6 +583,76 @@ export function attachWsServer(http_server, options = {}) {
 }
 
 /**
+ * Remove a client id's list subscription from a socket. The socket is
+ * detached from the registry key only when no other client id on the same
+ * socket still uses that key, so sibling subscriptions keep receiving updates.
+ *
+ * @param {WebSocket} ws
+ * @param {ConnectionSubs} s
+ * @param {string} client_id
+ * @returns {boolean} true when the client id had a subscription that was removed
+ */
+function detachClientSub(ws, s, client_id) {
+  const subs = s.list_subs;
+  const sub = subs?.get(client_id);
+  if (!subs || !sub) {
+    return false;
+  }
+  subs.delete(client_id);
+  for (const other of subs.values()) {
+    if (other.key === sub.key) {
+      return true;
+    }
+  }
+  return registry.detach(sub.spec, ws);
+}
+
+/**
+ * Publish a key's delta as upsert/delete envelopes to every subscriber of the
+ * key except the newcomer whose fetch produced it. Callers hold the key lock.
+ *
+ * @param {string} key
+ * @param {Array<Record<string, unknown>>} items
+ * @param {{ added: string[], updated: string[], removed: string[] }} delta
+ * @param {WebSocket} except_ws
+ * @param {string} except_client_id
+ */
+function publishDeltaToOthers(key, items, delta, except_ws, except_client_id) {
+  const changed_ids = [...delta.added, ...delta.updated];
+  if (changed_ids.length === 0 && delta.removed.length === 0) {
+    return;
+  }
+  const entry = registry.get(key);
+  if (!entry) {
+    return;
+  }
+  /** @type {Map<string, Record<string, unknown>>} */
+  const by_id = new Map();
+  for (const it of items) {
+    if (it && typeof it.id === 'string') {
+      by_id.set(it.id, it);
+    }
+  }
+  for (const ws of entry.subscribers) {
+    if (ws.readyState !== ws.OPEN) continue;
+    const subs = ensureSubs(ws).list_subs || new Map();
+    for (const [cid, v] of subs.entries()) {
+      if (v.key !== key) continue;
+      if (ws === except_ws && cid === except_client_id) continue;
+      for (const id of changed_ids) {
+        const issue = by_id.get(id);
+        if (issue) {
+          emitSubscriptionUpsert(ws, cid, key, issue);
+        }
+      }
+      for (const id of delta.removed) {
+        emitSubscriptionDelete(ws, cid, key, id);
+      }
+    }
+  }
+}
+
+/**
  * Handle an incoming message frame and respond to the same socket.
  *
  * @param {WebSocket} ws
@@ -710,17 +780,15 @@ export async function handleMessage(ws, data) {
           spec,
           initial ? initial.items : []
         );
-        void registry.applyItems(attached_key, items);
+        const delta = registry.applyItems(attached_key, items);
         emitSubscriptionSnapshot(ws, client_id, attached_key, items);
+        // Existing subscribers of this key hold the previous items; send
+        // them what the newcomer's fetch changed.
+        publishDeltaToOthers(attached_key, items, delta, ws, client_id);
       });
     } catch (err) {
       log('subscribe-list snapshot error for %s: %o', attached_key, err);
-      s.list_subs?.delete(client_id);
-      try {
-        registry.detach(spec, ws);
-      } catch {
-        // ignore detach errors
-      }
+      detachClientSub(ws, s, client_id);
       replyWithError('bd_error', 'Failed to publish snapshot', { key });
       return;
     }
@@ -741,17 +809,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const s = ensureSubs(ws);
-    const sub = s.list_subs?.get(client_id) || null;
-    let removed = false;
-    if (sub) {
-      try {
-        removed = registry.detach(sub.spec, ws);
-      } catch {
-        removed = false;
-      }
-      s.list_subs?.delete(client_id);
-    }
+    const removed = detachClientSub(ws, ensureSubs(ws), client_id);
     ws.send(
       JSON.stringify(
         makeOk(req, {
