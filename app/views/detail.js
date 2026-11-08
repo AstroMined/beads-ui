@@ -1,7 +1,8 @@
 // Issue Detail view implementation (lit-html based)
 import { html, render } from 'lit-html';
-import { parseView } from '../router.js';
-import { issueHashFor } from '../utils/issue-url.js';
+import { hasOrderingRelations } from '../data/dep-graph.js';
+import { parseFocus, parseView } from '../router.js';
+import { graphHashFor, issueHashFor } from '../utils/issue-url.js';
 import { debug } from '../utils/logging.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { emojiForPriority } from '../utils/priority-badge.js';
@@ -39,6 +40,7 @@ function formatCommentDate(dateStr) {
  * @property {string} [status]
  * @property {number} [priority]
  * @property {string} [issue_type]
+ * @property {string} [dependency_type]
  */
 
 /**
@@ -137,7 +139,7 @@ export function createDetailView(
       <div class="delete-confirm">
         <h2 class="delete-confirm__title">Delete Issue</h2>
         <p class="delete-confirm__message">
-          Are you sure you want to delete issue <strong>${issueId}</strong> — <strong>${issueTitle}</strong>? This action cannot be undone.
+          Are you sure you want to delete issue <strong>${issueId}</strong>: <strong>${issueTitle}</strong>? This action cannot be undone.
         </p>
         <div class="delete-confirm__actions">
           <button type="button" class="btn" id="delete-cancel-btn">Cancel</button>
@@ -209,9 +211,18 @@ export function createDetailView(
     openDeleteDialog();
   }
 
-  /** @param {string} id */
+  /**
+   * Hash that opens an issue over the current view, keeping the graph focus
+   * while on the graph view.
+   *
+   * @param {string} id
+   */
   function issueHref(id) {
-    const view = parseView(window.location.hash || '');
+    const hash = window.location.hash || '';
+    const view = parseView(hash);
+    if (view === 'graph') {
+      return graphHashFor(parseFocus(hash), id);
+    }
     return issueHashFor(view, id);
   }
 
@@ -866,15 +877,22 @@ export function createDetailView(
   /**
    * @param {'Dependencies'|'Dependents'} title
    * @param {Dependency[]} items
+   * @param {string | null} [graph_href] - Hash for a "View in graph" link.
    */
-  function depsSection(title, items) {
+  function depsSection(title, items, graph_href = null) {
     const test_id =
       title === 'Dependencies' ? 'add-dependency' : 'add-dependent';
+    const title_zone = graph_href
+      ? html`<div class="props-card__header">
+          <div class="props-card__title">${title}</div>
+          <a href=${graph_href} data-testid="view-in-graph">View in graph</a>
+        </div>`
+      : html`<div>
+          <div class="props-card__title">${title}</div>
+        </div>`;
     return html`
       <div class="props-card">
-        <div>
-          <div class="props-card__title">${title}</div>
-        </div>
+        ${title_zone}
         <ul>
           ${!items || items.length === 0
             ? null
@@ -1314,7 +1332,11 @@ export function createDetailView(
                 </div>
               </div>
               ${labels_block}
-              ${depsSection('Dependencies', issue.dependencies || [])}
+              ${depsSection(
+                'Dependencies',
+                issue.dependencies || [],
+                hasOrderingRelations(issue) ? graphHashFor(issue.id) : null
+              )}
               ${depsSection('Dependents', issue.dependents || [])}
             </div>
           </div>

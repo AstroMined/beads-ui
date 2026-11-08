@@ -1,10 +1,51 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createDetailView } from './detail.js';
 
 function setupDom() {
   const root = document.createElement('div');
   document.body.appendChild(root);
   return root;
+}
+
+/**
+ * A detail snapshot in the bd show shape.
+ *
+ * @typedef {{
+ *   id: string,
+ *   title?: string,
+ *   dependencies: Array<{ id: string, dependency_type: string }>,
+ *   dependents: Array<{ id: string, dependency_type: string }>
+ * }} DetailFixture
+ */
+
+/**
+ * Issue stores that serve one detail snapshot.
+ *
+ * @param {DetailFixture} issue
+ */
+function storesFor(issue) {
+  return {
+    /** @param {string} id */
+    snapshotFor(id) {
+      return id === `detail:${issue.id}` ? [issue] : [];
+    },
+    subscribe() {
+      return () => {};
+    }
+  };
+}
+
+/**
+ * Load a detail view for the given issue and return its mount.
+ *
+ * @param {DetailFixture} issue
+ */
+async function mountDetail(issue) {
+  const mount = setupDom();
+  const send = vi.fn(async () => issue);
+  const view = createDetailView(mount, send, undefined, storesFor(issue));
+  await view.load(issue.id);
+  return mount;
 }
 
 describe('views/detail dependencies', () => {
@@ -114,5 +155,80 @@ describe('views/detail dependencies', () => {
     // send should not be called with dep-add
     const calls = send.mock.calls.map((c) => c[0]);
     expect(calls.includes('dep-add')).toBe(false);
+  });
+});
+
+describe('views/detail graph link', () => {
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  test('links to the graph focused on the issue when it blocks or is blocked', async () => {
+    const mount = await mountDetail({
+      id: 'UI-40',
+      title: 'Blocked',
+      dependencies: [{ id: 'UI-41', dependency_type: 'blocks' }],
+      dependents: []
+    });
+
+    const link = mount.querySelector('[data-testid="view-in-graph"]');
+    expect(link?.tagName).toBe('A');
+    expect(link?.getAttribute('href')).toBe('#/graph?focus=UI-40');
+    expect(link?.textContent?.trim()).toBe('View in graph');
+  });
+
+  test('shows the link when only a dependent carries a blocks edge', async () => {
+    const mount = await mountDetail({
+      id: 'UI-50',
+      dependencies: [],
+      dependents: [{ id: 'UI-51', dependency_type: 'blocks' }]
+    });
+
+    const link = mount.querySelector('[data-testid="view-in-graph"]');
+    expect(link?.getAttribute('href')).toBe('#/graph?focus=UI-50');
+  });
+
+  test('hides the link when relations are containment or context only', async () => {
+    const mount = await mountDetail({
+      id: 'UI-60',
+      dependencies: [
+        { id: 'UI-61', dependency_type: 'parent-child' },
+        { id: 'UI-62', dependency_type: 'related' }
+      ],
+      dependents: [{ id: 'UI-63', dependency_type: 'parent-child' }]
+    });
+
+    expect(mount.querySelector('[data-testid="view-in-graph"]')).toBeNull();
+    // The card itself still renders its title.
+    const titles = Array.from(mount.querySelectorAll('.props-card__title')).map(
+      (el) => el.textContent?.trim()
+    );
+    expect(titles).toContain('Dependencies');
+  });
+
+  test('dependency rows keep the graph focus while on the graph view', async () => {
+    window.location.hash = '#/graph?focus=UI-1';
+    const mount = await mountDetail({
+      id: 'UI-70',
+      dependencies: [{ id: 'UI-71', dependency_type: 'blocks' }],
+      dependents: []
+    });
+
+    const row = mount.querySelector('li[data-href]');
+    expect(row?.getAttribute('data-href')).toBe(
+      '#/graph?focus=UI-1&issue=UI-71'
+    );
+  });
+
+  test('dependency rows keep the plain view hash off the graph view', async () => {
+    window.location.hash = '#/board';
+    const mount = await mountDetail({
+      id: 'UI-80',
+      dependencies: [{ id: 'UI-81', dependency_type: 'blocks' }],
+      dependents: []
+    });
+
+    const row = mount.querySelector('li[data-href]');
+    expect(row?.getAttribute('data-href')).toBe('#/board?issue=UI-81');
   });
 });
