@@ -17,6 +17,8 @@ export default defineConfig({
           name: 'jsdom',
           setupFiles: ['test/setup-vitest.js'],
           include: ['app/**/*.test.js'],
+          // Node 25+ defines a global localStorage that shadows jsdom's
+          execArgv: ['--no-experimental-webstorage'],
           environment: 'jsdom',
           restoreMocks: true
         }
