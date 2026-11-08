@@ -39,13 +39,19 @@ bullet is exactly ``- `repo/relative/path` ``: no glob, `..`, absolute path or t
 hand-filed bead about global config may name ``- `~/.claude/path` ``, written unexpanded.
 Each type has one skeleton:
 
-| Type            | Description header                 | `## Files` | Acceptance                                         |
-| --------------- | ---------------------------------- | ---------- | -------------------------------------------------- |
-| `task`, `chore` | why and what                       | required   | one or more ACs                                    |
-| `bug`           | the symptom                        | required   | a run AC: the reproducing command, red at creation |
-| `epic`          | goal                               | optional   | one or more ACs                                    |
-| `feature`       | scope                              | optional   | none                                               |
-| `observation`   | the finding, ``Reproduce: `cmd` `` | optional   | none                                               |
+| Type            | Description header                     | `## Files` | Acceptance                                         |
+| --------------- | -------------------------------------- | ---------- | -------------------------------------------------- |
+| `task`, `chore` | why and what                           | required   | one or more ACs                                    |
+| `bug`           | the symptom                            | required   | a run AC: the reproducing command, red at creation |
+| `epic`          | goal                                   | optional   | one or more ACs                                    |
+| `feature`       | scope                                  | optional   | none                                               |
+| `observation`   | the finding, then its evidence (below) | optional   | none                                               |
+
+Evidence is the file and line that show a defect, or a command that does. An observation's
+header carries one evidence line: ``Reproduce: `cmd` ``, or `Evidence: <path>:<line>` followed by
+the verbatim lines that stand there, each led by `>` and one space. A `bug` needs its reproducing command; a
+defect seen only by reading is a `task` or `chore` whose header carries the same `Evidence:` line
+and quote, with a settled AC that it is gone.
 
 A bead you file by hand for work no PRD covers is not required to reference a PRD or a plan: its
 header is free text, and every other rule above still applies. The `PRD:`, `Plan:` and `Source:` header lines belong
@@ -105,12 +111,10 @@ bd close proj-a1b.2.1 --reason="Wrapper landed in a1b2c3d; unit and integration 
   feature bead is created only when orchestrate plans the settled PRD
   (`pipeline-check.py feature-open --prd`), never by hand ahead of it.
 - **Discovered work: fix, file, or report.** Something found while doing a bead is fixed
-  now when it is within reach of the current bead. Otherwise it becomes a bead only when a
-  command reproduces the failure; that command goes in a run AC, observed red at creation.
-  An intermittent symptom does not exempt it: look for the deterministic defect underneath,
-  and a command proving that cause counts. Anything with no reproducing command goes as one
-  line under "Discovered, not done" in your final message, naming the suspected cause, and
-  the user decides.
+  now when it is within reach of the current bead; a problem seen by reading is real and gets
+  fixed. Otherwise it becomes a bead carrying its evidence: the file and line that show it, or a
+  command that does. Only a suspicion with no evidence goes as one line under "Discovered, not
+  done" in your final message, naming the suspected cause, and the user decides.
 - One bead per unit of work. Do not split a task into per-file or per-finding beads.
 
 ## Essential commands
