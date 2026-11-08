@@ -1,5 +1,6 @@
 /**
  * @import { MessageType } from './protocol.js'
+ * @import { BoardState, ViewName } from './state.js'
  */
 import { html, render } from 'lit-html';
 import { createListSelectors } from './data/list-selectors.js';
@@ -7,7 +8,7 @@ import { createDataLayer } from './data/providers.js';
 import { createSubscriptionIssueStores } from './data/subscription-issue-stores.js';
 import { createSubscriptionStore } from './data/subscriptions-store.js';
 import { createHashRouter, parseHash, parseView } from './router.js';
-import { createStore } from './state.js';
+import { createStore, isViewName, normalizeBoardFilters } from './state.js';
 import { createActivityIndicator } from './utils/activity-indicator.js';
 import { debug } from './utils/logging.js';
 import { showToast } from './utils/toast.js';
@@ -441,26 +442,21 @@ export function bootstrap(root_element) {
       log('filters parse error: %o', err);
     }
     // Load last-view from storage
-    /** @type {'issues'|'epics'|'board'|'settings'} */
+    /** @type {ViewName} */
     let last_view = 'issues';
     try {
       const raw_view = window.localStorage.getItem('beads-ui.view');
-      if (
-        raw_view === 'issues' ||
-        raw_view === 'epics' ||
-        raw_view === 'board' ||
-        raw_view === 'settings'
-      ) {
+      if (isViewName(raw_view)) {
         last_view = raw_view;
       }
     } catch (err) {
       log('view parse error: %o', err);
     }
     // Load board preferences
-    /** @type {{ closed_filter: 'today'|'3'|'7', board_filters: { parent: string|null, assignee: string|null, type: string|null } }} */
+    /** @type {BoardState} */
     let persistedBoard = {
       closed_filter: 'today',
-      board_filters: { parent: null, assignee: null, type: null }
+      board_filters: normalizeBoardFilters(null)
     };
     try {
       const raw_board = window.localStorage.getItem('beads-ui.board');
@@ -480,18 +476,10 @@ export function bootstrap(root_element) {
     try {
       const raw_filters = window.localStorage.getItem('beads-ui.board-filters');
       if (raw_filters) {
-        const obj = JSON.parse(raw_filters);
-        if (obj && typeof obj === 'object') {
-          persistedBoard.board_filters = {
-            parent:
-              typeof obj.parent === 'string' && obj.parent ? obj.parent : null,
-            assignee:
-              typeof obj.assignee === 'string' && obj.assignee
-                ? obj.assignee
-                : null,
-            type: typeof obj.type === 'string' && obj.type ? obj.type : null
-          };
-        }
+        // Migrates the legacy single `type` and drops invalid values
+        persistedBoard.board_filters = normalizeBoardFilters(
+          JSON.parse(raw_filters)
+        );
       }
     } catch (err) {
       log('board filters parse error: %o', err);
@@ -730,12 +718,10 @@ export function bootstrap(root_element) {
         'beads-ui.board',
         JSON.stringify({ closed_filter: s.board.closed_filter })
       );
-      if (s.board.board_filters) {
-        window.localStorage.setItem(
-          'beads-ui.board-filters',
-          JSON.stringify(s.board.board_filters)
-        );
-      }
+      window.localStorage.setItem(
+        'beads-ui.board-filters',
+        JSON.stringify(normalizeBoardFilters(s.board.board_filters))
+      );
     });
     void issues_view.load();
 
@@ -745,8 +731,8 @@ export function bootstrap(root_element) {
       const s = store.getState();
       store.setState({ selected_id: null });
       try {
-        /** @type {'issues'|'epics'|'board'|'settings'} */
-        const v = s.view || 'issues';
+        // gotoView does not route the graph view; fall back to issues
+        const v = s.view === 'graph' ? 'issues' : s.view;
         router.gotoView(v);
       } catch {
         // ignore
@@ -870,7 +856,7 @@ export function bootstrap(root_element) {
     });
     // Preload epics when switching to view
     /**
-     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board'|'settings', filters: any }} s
+     * @param {{ selected_id: string | null, view: ViewName, filters: any }} s
      */
     // --- Subscriptions: tab-level management and filter-driven updates ---
     /** @type {null | (() => Promise<void>)} */
@@ -915,7 +901,7 @@ export function bootstrap(root_element) {
     /**
      * Ensure only the active tab has subscriptions; clean up previous.
      *
-     * @param {{ view: 'issues'|'epics'|'board'|'settings', filters: any }} s
+     * @param {{ view: ViewName, filters: any }} s
      */
     function ensureTabSubscriptions(s) {
       // Issues tab
@@ -1045,7 +1031,7 @@ export function bootstrap(root_element) {
     /**
      * Manage route visibility and list subscriptions per view.
      *
-     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board'|'settings', filters: any }} s
+     * @param {{ selected_id: string | null, view: ViewName, filters: any }} s
      */
     const onRouteChange = (s) => {
       if (

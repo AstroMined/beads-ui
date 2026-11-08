@@ -1,4 +1,4 @@
-import { priority_levels } from './priority.js';
+import { DEFAULT_PRIORITY, priority_levels } from './priority.js';
 
 /**
  * Create a colored badge for a priority value (0..4).
@@ -7,7 +7,7 @@ import { priority_levels } from './priority.js';
  * @returns {HTMLSpanElement}
  */
 export function createPriorityBadge(priority) {
-  const p = typeof priority === 'number' ? priority : 2;
+  const p = typeof priority === 'number' ? priority : DEFAULT_PRIORITY;
   const el = document.createElement('span');
   el.className = 'priority-badge';
   el.classList.add(`is-p${Math.max(0, Math.min(4, p))}`);

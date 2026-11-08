@@ -1,7 +1,7 @@
 import { html } from 'lit-html';
 import { createIssueIdRenderer } from '../utils/issue-id-renderer.js';
 import { emojiForPriority } from '../utils/priority-badge.js';
-import { priority_levels } from '../utils/priority.js';
+import { DEFAULT_PRIORITY, priority_levels } from '../utils/priority.js';
 import { statusLabel } from '../utils/status.js';
 import { createTypeBadge } from '../utils/type-badge.js';
 
@@ -139,7 +139,7 @@ export function createIssueRowRenderer(options) {
    */
   function rowTemplate(it) {
     const cur_status = String(it.status || 'open');
-    const cur_prio = String(it.priority ?? 2);
+    const cur_prio = String(it.priority ?? DEFAULT_PRIORITY);
     const is_selected = get_selected_id() === it.id;
     return html`<tr
       role="row"

@@ -2,6 +2,7 @@
  * Shared sort comparators for issues lists.
  * Centralizes sorting so views and stores stay consistent.
  */
+import { DEFAULT_PRIORITY } from '../utils/priority.js';
 
 /**
  * @typedef {{ id: string, title?: string, status?: 'open'|'in_progress'|'closed', priority?: number, issue_type?: string, created_at?: number, updated_at?: number, closed_at?: number }} IssueLite
@@ -14,8 +15,8 @@
  * @param {IssueLite} b
  */
 export function cmpPriorityThenCreated(a, b) {
-  const pa = a.priority ?? 2;
-  const pb = b.priority ?? 2;
+  const pa = a.priority ?? DEFAULT_PRIORITY;
+  const pb = b.priority ?? DEFAULT_PRIORITY;
   if (pa !== pb) {
     return pa - pb;
   }

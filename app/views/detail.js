@@ -5,7 +5,7 @@ import { issueHashFor } from '../utils/issue-url.js';
 import { debug } from '../utils/logging.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { emojiForPriority } from '../utils/priority-badge.js';
-import { priority_levels } from '../utils/priority.js';
+import { DEFAULT_PRIORITY, priority_levels } from '../utils/priority.js';
 import { statusLabel } from '../utils/status.js';
 import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
@@ -503,7 +503,10 @@ export function createDetailView(
       return;
     }
     const sel = /** @type {HTMLSelectElement} */ (ev.currentTarget);
-    const prev = typeof current.priority === 'number' ? current.priority : 2;
+    const prev =
+      typeof current.priority === 'number'
+        ? current.priority
+        : DEFAULT_PRIORITY;
     const next = Number(sel.value);
     if (next === prev) {
       return;
@@ -952,15 +955,17 @@ export function createDetailView(
 
     const priority_select = html`<select
       class=${`badge-select badge--priority is-p${String(
-        typeof issue.priority === 'number' ? issue.priority : 2
+        typeof issue.priority === 'number' ? issue.priority : DEFAULT_PRIORITY
       )}`}
       @change=${onPriorityChange}
-      .value=${String(typeof issue.priority === 'number' ? issue.priority : 2)}
+      .value=${String(
+        typeof issue.priority === 'number' ? issue.priority : DEFAULT_PRIORITY
+      )}
       ?disabled=${pending}
     >
       ${(() => {
         const cur = String(
-          typeof issue.priority === 'number' ? issue.priority : 2
+          typeof issue.priority === 'number' ? issue.priority : DEFAULT_PRIORITY
         );
         return priority_levels.map(
           (p, i) =>
