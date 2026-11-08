@@ -1,5 +1,9 @@
-import { html, render } from 'lit-html';
-import { ancestorIds, buildDepIndex } from '../data/dep-graph.js';
+import { html, nothing, render } from 'lit-html';
+import {
+  ancestorIds,
+  buildDepIndex,
+  hasOrderingRelations
+} from '../data/dep-graph.js';
 import { BOARD_INDEX_CLIENT_ID } from '../data/graph-subscription.js';
 import { createListSelectors } from '../data/list-selectors.js';
 import {
@@ -40,6 +44,9 @@ const LABELS_KEY = 'labels';
 const COLUMNS_KEY = 'columns';
 
 const PARENT_MENU_ID = `${FILTER_ID_PREFIX}-${PARENT_KEY}-menu`;
+
+/** Key that opens the focused card in the Graph tab. */
+const GRAPH_KEY = 'g';
 
 /** Known issue types, listed before any unknown type found on the board. */
 const KNOWN_TYPE_OPTIONS = ISSUE_TYPES.map((t) => ({
@@ -122,6 +129,7 @@ export function computeColMinWidth(
  * @property {HTMLElement} mount_element
  * @property {unknown} [data] - Legacy data layer for fallback fetch.
  * @property {(id: string) => void} gotoIssue - Navigate to issue detail.
+ * @property {(id: string) => void} [gotoGraph] - Open an issue in the Graph tab.
  * @property {{ getState: () => any, setState: (patch: any) => void, subscribe?: (fn: (s:any)=>void)=>()=>void }} [store]
  * @property {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
  * @property {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
@@ -145,6 +153,7 @@ export function createBoardView(options) {
     mount_element,
     data: _data,
     gotoIssue,
+    gotoGraph,
     store,
     subscriptions,
     issueStores,
@@ -423,6 +432,23 @@ export function createBoardView(options) {
     const own = Array.isArray(it.labels) ? it.labels : [];
     const indexed = dep_index.entries.get(it.id)?.issue.labels;
     return Array.isArray(indexed) ? [...own, ...indexed] : own;
+  }
+
+  /**
+   * Whether an item can be opened in the Graph tab: a `gotoGraph` handler
+   * exists and the item or its index entry takes part in ordering.
+   *
+   * @param {IssueLite} it
+   * @returns {boolean}
+   */
+  function opensInGraph(it) {
+    if (typeof gotoGraph !== 'function') {
+      return false;
+    }
+    const entry = dep_index.entries.get(it.id);
+    return (
+      hasOrderingRelations(it) || Boolean(entry && hasOrderingRelations(entry))
+    );
   }
 
   /**
@@ -958,9 +984,50 @@ export function createBoardView(options) {
         <div class="board-card__meta">
           ${createTypeBadge(it.issue_type)} ${createPriorityBadge(it.priority)}
           ${createIssueIdRenderer(it.id, { class_name: 'mono' })}
+          ${opensInGraph(it)
+            ? html`<button
+                type="button"
+                class="btn board-card__graph"
+                aria-label=${`Open ${it.id} in graph`}
+                title="Open in graph"
+                @click=${(/** @type {MouseEvent} */ ev) =>
+                  onGraphClick(ev, it.id)}
+              >
+                Graph
+              </button>`
+            : ''}
         </div>
       </article>
     `;
+  }
+
+  /**
+   * Open the card's issue in the Graph tab without opening its details.
+   *
+   * @param {MouseEvent} ev
+   * @param {string} id
+   */
+  function onGraphClick(ev, id) {
+    ev.stopPropagation();
+    if (typeof gotoGraph === 'function') {
+      gotoGraph(id);
+    }
+  }
+
+  /**
+   * Find a rendered item by id in the filtered view.
+   *
+   * @param {string} id
+   * @returns {IssueLite|null}
+   */
+  function viewItem(id) {
+    for (const items of column_view.values()) {
+      const found = items.find((it) => it.id === id);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
   }
 
   /** @type {string|null} */
@@ -1119,6 +1186,7 @@ export function createBoardView(options) {
    * - ArrowUp/ArrowDown within column.
    * - ArrowLeft/ArrowRight to adjacent non-empty column (focus top card).
    * - Enter/Space to open details for focused card.
+   * - g to open the focused card in the Graph tab when it qualifies.
    */
   function postRenderEnhance() {
     try {
@@ -1181,11 +1249,24 @@ export function createBoardView(options) {
     ) {
       return;
     }
+    // Buttons inside a card handle their own Enter and Space
+    if (target.closest('button')) {
+      return;
+    }
     const card = target.closest('.board-card');
     if (!card) {
       return;
     }
     const key = String(ev.key || '');
+    if (key === GRAPH_KEY && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      const id = card.getAttribute('data-issue-id');
+      const item = id ? viewItem(id) : null;
+      if (id && item && opensInGraph(item) && typeof gotoGraph === 'function') {
+        ev.preventDefault();
+        gotoGraph(id);
+      }
+      return;
+    }
     if (key === 'Enter' || key === ' ') {
       ev.preventDefault();
       const id = card.getAttribute('data-issue-id');
@@ -1716,7 +1797,7 @@ export function createBoardView(options) {
       // Reset drag state
       dragging_id = null;
       current_drop_target = null;
-      mount_element.replaceChildren();
+      render(nothing, mount_element);
       for (const col of col_defs) {
         column_data.set(col.id, []);
         column_view.set(col.id, []);

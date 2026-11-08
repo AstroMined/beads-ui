@@ -1419,6 +1419,11 @@ input.inline-edit:focus {
   align-items: center;
   gap: var(--space-4);
 }
+.board-card__meta .board-card__graph {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-3);
+  font-size: 11px;
+}
 
 /* Drag and drop styles */
 .board-card--dragging {
