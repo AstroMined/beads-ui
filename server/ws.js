@@ -11,8 +11,10 @@ import {
   makeError,
   makeOk
 } from '../app/protocol.js';
+import { runInBackground } from './bd-priority.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
 import { resolveWorkspaceDatabase } from './db.js';
+import { readManifestFingerprint } from './dolt-manifest.js';
 import { fetchListForSubscription } from './list-adapters.js';
 import { debug } from './logging.js';
 import { getAvailableWorkspaces } from './registry-watcher.js';
@@ -34,6 +36,26 @@ const log = debug('ws');
 /** @type {ReturnType<typeof setTimeout> | null} */
 let REFRESH_TIMER = null;
 let REFRESH_DEBOUNCE_MS = 75;
+
+/**
+ * Refresh passes are single-flight. While one runs, later requests share one
+ * waiting pass, so a request that is still waiting when a newer one arrives is
+ * served by that newer pass instead of running on its own.
+ */
+/** @type {Promise<void> | null} */
+let PASS_RUNNING = null;
+/** @type {Promise<void> | null} */
+let PASS_WAITING = null;
+
+/**
+ * Change probe: the manifest fingerprint read at the start of the last pass
+ * that completed without errors, and the workspace it was read for.
+ * `CURRENT_WORKSPACE` is replaced on attach and on every workspace switch, so
+ * comparing it by identity resets the probe whenever the workspace changes.
+ *
+ * @type {{ workspace: { root_dir: string, db_path: string }, fingerprint: string } | null}
+ */
+let LAST_PASS_PROBE = null;
 
 /**
  * Mutation refresh window gate. When active, watcher-driven list refresh
@@ -145,20 +167,94 @@ function collectActiveListSpecs() {
 }
 
 /**
- * Run refresh for all active list subscription specs and publish deltas.
+ * Request a refresh pass over all active list subscription specs. Starts one
+ * now when idle; otherwise joins the single pass waiting behind the running
+ * one.
+ *
+ * @returns {Promise<void>} Settles when the pass serving this request is done.
  */
-async function refreshAllActiveListSubscriptions() {
+function refreshAllActiveListSubscriptions() {
+  if (PASS_WAITING) {
+    return PASS_WAITING;
+  }
+  if (PASS_RUNNING) {
+    PASS_WAITING = PASS_RUNNING.then(() => {
+      PASS_WAITING = null;
+      return startRefreshPass();
+    });
+    return PASS_WAITING;
+  }
+  return startRefreshPass();
+}
+
+/**
+ * Start a refresh pass whose bd calls queue behind interactive ones.
+ *
+ * @returns {Promise<void>}
+ */
+function startRefreshPass() {
+  PASS_RUNNING = runInBackground(runRefreshPass).finally(() => {
+    PASS_RUNNING = null;
+  });
+  return PASS_RUNNING;
+}
+
+/**
+ * Refresh every active spec and publish deltas, unless the workspace manifest
+ * is unchanged since the start of the last clean pass. The fingerprint is read
+ * before any fetch, so a write landing mid-pass makes the next pass run.
+ */
+async function runRefreshPass() {
+  const workspace = CURRENT_WORKSPACE;
+  const fingerprint = probeManifest(workspace);
+  if (
+    fingerprint !== null &&
+    LAST_PASS_PROBE !== null &&
+    LAST_PASS_PROBE.workspace === workspace &&
+    LAST_PASS_PROBE.fingerprint === fingerprint
+  ) {
+    log('refresh pass skipped: manifest unchanged (%s)', fingerprint);
+    return;
+  }
   const specs = collectActiveListSpecs();
   // Run refreshes concurrently; locking is handled per key in the registry
-  await Promise.all(
+  const results = await Promise.all(
     specs.map(async (spec) => {
       try {
-        await refreshAndPublish(spec);
-      } catch {
-        // ignore refresh errors per spec
+        return await refreshAndPublish(spec);
+      } catch (err) {
+        log('refresh threw for %s %o', keyOf(spec), err);
+        return false;
       }
     })
   );
+  if (
+    workspace !== null &&
+    fingerprint !== null &&
+    workspace === CURRENT_WORKSPACE &&
+    results.every(Boolean)
+  ) {
+    LAST_PASS_PROBE = { workspace, fingerprint };
+  }
+}
+
+/**
+ * Read the manifest fingerprint of a workspace. The probe only ever saves
+ * work, so any failure reads as "changed" (null).
+ *
+ * @param {{ root_dir: string } | null} workspace
+ * @returns {string | null}
+ */
+function probeManifest(workspace) {
+  if (!workspace) {
+    return null;
+  }
+  try {
+    return readManifestFingerprint(workspace.root_dir);
+  } catch (err) {
+    log('manifest probe failed for %s %o', workspace.root_dir, err);
+    return null;
+  }
 }
 
 /**
@@ -344,23 +440,24 @@ function emitSubscriptionDelete(ws, client_id, key, issue_id) {
  * per-subscription full-issue envelopes to subscribers. Serialized per key.
  *
  * @param {{ type: string, params?: Record<string, string|number|boolean> }} spec
+ * @returns {Promise<boolean>} False when the adapter fetch failed.
  */
 async function refreshAndPublish(spec) {
   const key = keyOf(spec);
-  await registry.withKeyLock(key, async () => {
+  return registry.withKeyLock(key, async () => {
     const res = await fetchListForSubscription(spec, {
       cwd: CURRENT_WORKSPACE?.root_dir
     });
     if (!res.ok) {
       log('refresh failed for %s: %s %o', key, res.error.message, res.error);
-      return;
+      return false;
     }
     const items = applyClosedIssuesFilter(spec, res.items);
     const prev_size = registry.get(key)?.itemsById.size || 0;
     const delta = registry.applyItems(key, items);
     const entry = registry.get(key);
     if (!entry || entry.subscribers.size === 0) {
-      return;
+      return true;
     }
     /** @type {Map<string, any>} */
     const by_id = new Map();
@@ -397,6 +494,7 @@ async function refreshAndPublish(spec) {
         }
       }
     }
+    return true;
   });
 }
 

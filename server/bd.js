@@ -1,10 +1,21 @@
 import { spawn } from 'node:child_process';
+import { BD_PRIORITY_BACKGROUND, currentBdPriority } from './bd-priority.js';
 import { resolveDbPath } from './db.js';
 import { debug } from './logging.js';
 
+export { runInBackground } from './bd-priority.js';
+
 const log = debug('bd');
-/** @type {Promise<void>} */
-let bd_run_queue = Promise.resolve();
+
+/** True while a bd job holds the run slot. */
+let bd_slot_held = false;
+/**
+ * Jobs waiting for the run slot, one FIFO per priority. Each entry starts its
+ * job when called; the slot passes to it without being released in between.
+ *
+ * @type {{ interactive: Array<() => void>, background: Array<() => void> }}
+ */
+const bd_waiters = { interactive: [], background: [] };
 
 /**
  * Get the git user name from git config.
@@ -177,24 +188,52 @@ function buildBdArgs(args) {
  * Dolt embedded mode can crash when multiple `bd` processes run concurrently
  * against the same workspace.
  *
+ * Waiting interactive jobs run before waiting background jobs (see
+ * `runInBackground`); a running job is never interrupted and jobs of the same
+ * priority run in arrival order.
+ *
  * @template T
  * @param {() => Promise<T>} operation
  * @returns {Promise<T>}
  */
 async function withBdRunQueue(operation) {
-  const previous = bd_run_queue;
-  /** @type {() => void} */
-  let release = () => {};
-  bd_run_queue = new Promise((resolve) => {
-    release = resolve;
-  });
-
-  await previous.catch(() => {});
+  await acquireBdSlot();
   try {
     return await operation();
   } finally {
-    release();
+    releaseBdSlot();
   }
+}
+
+/**
+ * Wait for the run slot at the priority of the calling async context.
+ *
+ * @returns {Promise<void>}
+ */
+function acquireBdSlot() {
+  if (!bd_slot_held) {
+    bd_slot_held = true;
+    return Promise.resolve();
+  }
+  const waiters =
+    currentBdPriority() === BD_PRIORITY_BACKGROUND
+      ? bd_waiters.background
+      : bd_waiters.interactive;
+  return new Promise((resolve) => {
+    waiters.push(() => resolve());
+  });
+}
+
+/**
+ * Hand the run slot to the next waiting job, interactive first, or free it.
+ */
+function releaseBdSlot() {
+  const next = bd_waiters.interactive.shift() ?? bd_waiters.background.shift();
+  if (next) {
+    next();
+    return;
+  }
+  bd_slot_held = false;
 }
 
 /**

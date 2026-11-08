@@ -5,7 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { getBdBin, getGitUserName, runBd, runBdJson } from './bd.js';
+import {
+  getBdBin,
+  getGitUserName,
+  runBd,
+  runBdJson,
+  runInBackground
+} from './bd.js';
 
 // Mock child_process.spawn before importing the module under test
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
@@ -34,6 +40,56 @@ function makeFakeProc(stdoutText, stderrText, code) {
     cp.emit('close', code);
   }, 0);
   return cp;
+}
+
+/**
+ * Install a spawn mock whose processes exit only when `finish(name)` is
+ * called. A job is named by its last argument.
+ */
+function controlSpawns() {
+  /** @type {string[]} */
+  const started = [];
+  /** @type {Map<string, () => void>} */
+  const finishers = new Map();
+  /** @type {Array<{ count: number, resolve: () => void }>} */
+  const waiters = [];
+  mockedSpawn.mockImplementation((_bin, args) => {
+    const cp = /** @type {any} */ (new EventEmitter());
+    cp.stdout = new PassThrough();
+    cp.stderr = new PassThrough();
+    const name = String(args[args.length - 1]);
+    finishers.set(name, () => {
+      cp.stdout.end();
+      cp.stderr.end();
+      cp.emit('close', 0);
+    });
+    started.push(name);
+    for (const w of waiters.splice(0)) {
+      if (started.length >= w.count) {
+        w.resolve();
+      } else {
+        waiters.push(w);
+      }
+    }
+    return cp;
+  });
+  return {
+    started,
+    /**
+     * @param {number} count
+     * @returns {Promise<void>}
+     */
+    untilStarted(count) {
+      if (started.length >= count) {
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => waiters.push({ count, resolve }));
+    },
+    /** @param {string} name */
+    finish(name) {
+      finishers.get(name)?.();
+    }
+  };
 }
 
 const mockedSpawn = /** @type {import('vitest').Mock} */ (spawnMock);
@@ -152,6 +208,79 @@ describe('runBd', () => {
 
     const options = mockedSpawn.mock.calls[0][2];
     expect(options.env.BEADS_DB).toBe('/custom/workspace.db');
+  });
+});
+
+describe('bd run queue priority', () => {
+  test('queued interactive calls run before queued background calls', async () => {
+    const spawns = controlSpawns();
+    const running = runInBackground(() => runBd(['bg-running']));
+    await spawns.untilStarted(1);
+
+    const bg_first = runInBackground(() => runBd(['bg-first']));
+    const fg_first = runBd(['fg-first']);
+    const bg_second = runInBackground(() => runBd(['bg-second']));
+    const fg_second = runBd(['fg-second']);
+
+    // A running job is never interrupted by a queued interactive one
+    await Promise.resolve();
+    expect(spawns.started).toEqual(['bg-running']);
+
+    // Finish whichever job holds the slot until all five have run
+    const total = 5;
+    for (let count = 1; count < total; count++) {
+      spawns.finish(spawns.started[count - 1]);
+      await spawns.untilStarted(count + 1);
+    }
+    spawns.finish(spawns.started[total - 1]);
+    await Promise.all([running, bg_first, fg_first, bg_second, fg_second]);
+
+    expect(spawns.started).toEqual([
+      'bg-running',
+      'fg-first',
+      'fg-second',
+      'bg-first',
+      'bg-second'
+    ]);
+  });
+
+  test('background priority survives awaits inside runInBackground', async () => {
+    const spawns = controlSpawns();
+    const running = runBd(['fg-running']);
+    await spawns.untilStarted(1);
+
+    const bg = runInBackground(async () => {
+      await Promise.resolve();
+      return runBd(['bg-after-await']);
+    });
+    await Promise.resolve();
+    const fg = runBd(['fg-later']);
+
+    spawns.finish('fg-running');
+    await spawns.untilStarted(2);
+    spawns.finish(spawns.started[1]);
+    await spawns.untilStarted(3);
+    spawns.finish(spawns.started[2]);
+    await Promise.all([running, bg, fg]);
+
+    expect(spawns.started).toEqual([
+      'fg-running',
+      'fg-later',
+      'bg-after-await'
+    ]);
+  });
+
+  test('a failing job releases the queue for the next one', async () => {
+    mockedSpawn.mockReturnValueOnce(makeFakeProc('', 'boom', 1));
+    mockedSpawn.mockReturnValueOnce(makeFakeProc('ok', '', 0));
+
+    const [failed, next] = await Promise.all([
+      runBd(['list']),
+      runInBackground(() => runBd(['list']))
+    ]);
+
+    expect(failed.code).toBe(1);
+    expect(next.code).toBe(0);
   });
 });
 
