@@ -3,6 +3,11 @@
  * @import { BoardState, ViewName } from './state.js'
  */
 import { html, render } from 'lit-html';
+import {
+  BOARD_INDEX_CLIENT_ID,
+  GRAPH_CLIENT_ID,
+  graphIssuesSpec
+} from './data/graph-subscription.js';
 import { createListSelectors } from './data/list-selectors.js';
 import { createDataLayer } from './data/providers.js';
 import { createSubscriptionIssueStores } from './data/subscription-issue-stores.js';
@@ -16,6 +21,7 @@ import { createBoardView } from './views/board.js';
 import { createDetailView } from './views/detail.js';
 import { createEpicsView } from './views/epics.js';
 import { createFatalErrorDialog } from './views/fatal-error-dialog.js';
+import { createGraphView } from './views/graph.js';
 import { createIssueDialog } from './views/issue-dialog.js';
 import { createListView } from './views/list.js';
 import { createTopNav } from './views/nav.js';
@@ -40,6 +46,7 @@ export function bootstrap(root_element) {
     </section>
     <section id="epics-root" class="route epics" hidden></section>
     <section id="board-root" class="route board" hidden></section>
+    <section id="graph-root" class="route graph" hidden></section>
     <section id="settings-root" class="route settings" hidden></section>
     <section id="detail-panel" class="route detail" hidden></section>
   `;
@@ -53,6 +60,8 @@ export function bootstrap(root_element) {
   const epics_root = document.getElementById('epics-root');
   /** @type {HTMLElement|null} */
   const board_root = document.getElementById('board-root');
+  /** @type {HTMLElement|null} */
+  const graph_root = document.getElementById('graph-root');
 
   /** @type {HTMLElement|null} */
   const settings_root = document.getElementById('settings-root');
@@ -66,6 +75,7 @@ export function bootstrap(root_element) {
     issues_root &&
     epics_root &&
     board_root &&
+    graph_root &&
     settings_root &&
     detail_mount
   ) {
@@ -75,24 +85,36 @@ export function bootstrap(root_element) {
     const fatal_dialog = createFatalErrorDialog(root_element);
 
     /**
+     * Human-readable message of a failed backend command.
+     *
+     * @param {unknown} err
+     * @returns {string}
+     */
+    function errorMessage(err) {
+      if (err && typeof err === 'object') {
+        const any = /** @type {{ message?: unknown }} */ (err);
+        if (typeof any.message === 'string' && any.message.length > 0) {
+          return any.message;
+        }
+      } else if (typeof err === 'string' && err.length > 0) {
+        return err;
+      }
+      return 'Request failed';
+    }
+
+    /**
      * Show a blocking dialog when a backend command fails.
      *
      * @param {unknown} err
      * @param {string} context
      */
     function showFatalFromError(err, context) {
-      /** @type {string} */
-      let message = 'Request failed';
+      const message = errorMessage(err);
       /** @type {string} */
       let detail = '';
 
       if (err && typeof err === 'object') {
-        const any = /** @type {{ message?: unknown, details?: unknown }} */ (
-          err
-        );
-        if (typeof any.message === 'string' && any.message.length > 0) {
-          message = any.message;
-        }
+        const any = /** @type {{ details?: unknown }} */ (err);
         if (typeof any.details === 'string') {
           detail = any.details;
         } else if (any.details && typeof any.details === 'object') {
@@ -102,8 +124,6 @@ export function bootstrap(root_element) {
             detail = '';
           }
         }
-      } else if (typeof err === 'string' && err.length > 0) {
-        message = err;
       }
 
       const title =
@@ -243,6 +263,8 @@ export function bootstrap(root_element) {
         unsub_promises.push(unsub().catch(() => {}));
       }
       unsub_board_map.clear();
+      // The graph keeps its focus so a deep link survives a workspace restore
+      unsub_promises.push(graph_tab.teardown(), board_index.teardown());
       await Promise.all(unsub_promises);
       // Clear all subscription stores
       /** @type {string[]} */
@@ -547,16 +569,7 @@ export function bootstrap(root_element) {
           // Update column definitions
           board_columns = new_cols;
           // Re-create board view with new columns
-          board_view = createBoardView({
-            mount_element: board_root,
-            data,
-            gotoIssue: (id) => router.gotoIssue(id),
-            store,
-            subscriptions,
-            issueStores: sub_issue_stores,
-            transport,
-            columns: board_columns
-          });
+          board_view = createBoard(board_view);
           // If board is active, re-subscribe and load
           const s = store.getState();
           if (s && s.view === 'board') {
@@ -589,16 +602,7 @@ export function bootstrap(root_element) {
             // Update column definitions
             board_columns = new_cols;
             // Re-create board view with new columns
-            board_view = createBoardView({
-              mount_element: board_root,
-              data,
-              gotoIssue: (id) => router.gotoIssue(id),
-              store,
-              subscriptions,
-              issueStores: sub_issue_stores,
-              transport,
-              columns: board_columns
-            });
+            board_view = createBoard(board_view);
             // If board is active, re-subscribe and load with server columns
             const s = store.getState();
             if (s && s.view === 'board') {
@@ -731,9 +735,8 @@ export function bootstrap(root_element) {
       const s = store.getState();
       store.setState({ selected_id: null });
       try {
-        // gotoView does not route the graph view; fall back to issues
-        const v = s.view === 'graph' ? 'issues' : s.view;
-        router.gotoView(v);
+        // On the graph, gotoView keeps the focus
+        router.gotoView(s.view);
       } catch {
         // ignore
       }
@@ -844,15 +847,34 @@ export function bootstrap(root_element) {
       subscriptions,
       sub_issue_stores
     );
-    let board_view = createBoardView({
-      mount_element: board_root,
-      data,
-      gotoIssue: (id) => router.gotoIssue(id),
+    /**
+     * Build the board view for the current columns. The previous view is
+     * cleared first so its delegated listeners and observers do not pile up.
+     *
+     * @param {ReturnType<typeof createBoardView> | null} previous
+     * @returns {ReturnType<typeof createBoardView>}
+     */
+    const createBoard = (previous) => {
+      previous?.clear();
+      return createBoardView({
+        mount_element: board_root,
+        data,
+        gotoIssue: (id) => router.gotoIssue(id),
+        gotoGraph: (id) => router.gotoGraph(id),
+        store,
+        subscriptions,
+        issueStores: sub_issue_stores,
+        transport,
+        columns: board_columns
+      });
+    };
+    let board_view = createBoard(null);
+    const graph_view = createGraphView({
+      mount_element: graph_root,
       store,
-      subscriptions,
-      issueStores: sub_issue_stores,
-      transport,
-      columns: board_columns
+      issue_stores: sub_issue_stores,
+      gotoGraph: (id) => router.gotoGraph(id),
+      gotoIssue: (id) => router.gotoIssue(id)
     });
     // Preload epics when switching to view
     /**
@@ -874,6 +896,138 @@ export function bootstrap(root_element) {
       getActivityCount: () => activity.getCount(),
       getActiveRequests: () => activity.getActiveRequests()
     };
+
+    /**
+     * A list subscription owned by one view. A subscribe reply that arrives
+     * after `teardown` unsubscribes at once and, when the view is active
+     * again, subscribes afresh. A failed subscribe is not retried until
+     * `teardown` (the view or workspace changed) or `retry`.
+     *
+     * @param {string} client_id
+     * @param {ViewName} view - The view whose visits scope the subscription.
+     * @param {{ onLoaded: () => void, onError: (err: unknown) => void, onTeardown: () => void }} handlers
+     */
+    function createTabSubscription(client_id, view, handlers) {
+      const spec = graphIssuesSpec();
+      /** @type {null | (() => Promise<void>)} */
+      let unsub = null;
+      let active = false;
+      let failed = false;
+      // Bumped by teardown so an in-flight reply can tell it is stale
+      let epoch = 0;
+
+      /** Drop a stale reply's in-flight marker and resubscribe if needed. */
+      function settleStale() {
+        pending_subscriptions.delete(client_id);
+        if (active) {
+          // Start from an empty store so the fresh snapshot is not ignored
+          // as older than one the stale subscription delivered
+          try {
+            sub_issue_stores.unregister(client_id);
+          } catch (err) {
+            log('unregister %s failed: %o', client_id, err);
+          }
+          ensure();
+        }
+      }
+
+      function ensure() {
+        active = true;
+        // Register store first to capture the initial snapshot
+        try {
+          sub_issue_stores.register(client_id, spec);
+        } catch (err) {
+          log('register %s store failed: %o', client_id, err);
+        }
+        if (unsub || failed || pending_subscriptions.has(client_id)) {
+          return;
+        }
+        pending_subscriptions.add(client_id);
+        const started = epoch;
+        void subscriptions.subscribeList(client_id, spec).then(
+          (u) => {
+            if (started !== epoch) {
+              // The user left (or switched workspace) before the reply
+              void u()
+                .catch(() => {})
+                .then(settleStale);
+              return;
+            }
+            pending_subscriptions.delete(client_id);
+            unsub = u;
+            handlers.onLoaded();
+          },
+          (err) => {
+            if (started !== epoch) {
+              settleStale();
+              return;
+            }
+            pending_subscriptions.delete(client_id);
+            failed = true;
+            handlers.onError(err);
+          }
+        );
+      }
+
+      /**
+       * Unsubscribe and drop the store. Resolves once the server-side
+       * unsubscribe completes.
+       *
+       * @returns {Promise<void>}
+       */
+      function teardown() {
+        if (!active) {
+          return Promise.resolve();
+        }
+        active = false;
+        failed = false;
+        epoch++;
+        const prev = unsub;
+        unsub = null;
+        try {
+          sub_issue_stores.unregister(client_id);
+        } catch (err) {
+          log('unregister %s failed: %o', client_id, err);
+        }
+        handlers.onTeardown();
+        return prev ? prev().catch(() => {}) : Promise.resolve();
+      }
+
+      return {
+        ensure,
+        teardown,
+        /** Subscribe again after a failure while the view is active. */
+        retry() {
+          failed = false;
+          if (store.getState().view === view) {
+            ensure();
+          }
+        }
+      };
+    }
+
+    const graph_tab = createTabSubscription(GRAPH_CLIENT_ID, 'graph', {
+      onLoaded: () => graph_view.setLoaded(true),
+      onError: (err) => {
+        log('subscribe graph failed: %o', err);
+        // The view clears the error itself before calling retry
+        graph_view.setError(errorMessage(err), () => graph_tab.retry());
+      },
+      // Reset the view; the focus lives in the store and is kept
+      onTeardown: () => {
+        graph_view.setError(null);
+        graph_view.setLoaded(false);
+      }
+    });
+
+    // The board falls back to its own items while the index is missing
+    const board_index = createTabSubscription(BOARD_INDEX_CLIENT_ID, 'board', {
+      onLoaded: () => {},
+      onError: (err) => {
+        log('subscribe board index failed: %o', err);
+      },
+      onTeardown: () => {}
+    });
 
     /**
      * Compute subscription spec for Issues tab based on filters.
@@ -898,14 +1052,18 @@ export function bootstrap(root_element) {
 
     /** @type {string|null} */
     let last_issues_spec_key = null;
+    // True while the browser tab has been hidden past the grace period
+    let tabs_paused = false;
     /**
      * Ensure only the active tab has subscriptions; clean up previous.
      *
      * @param {{ view: ViewName, filters: any }} s
      */
     function ensureTabSubscriptions(s) {
+      // While paused no view owns subscriptions, so every tab tears down
+      const view = tabs_paused ? null : s.view;
       // Issues tab
-      if (s.view === 'issues') {
+      if (view === 'issues') {
         const spec = computeIssuesSpec(s.filters || {});
         const key = JSON.stringify(spec);
         // Register store first to capture the initial snapshot
@@ -947,7 +1105,7 @@ export function bootstrap(root_element) {
       }
 
       // Epics tab
-      if (s.view === 'epics') {
+      if (view === 'epics') {
         // Register store first to avoid race with initial snapshot
         try {
           sub_issue_stores.register('tab:epics', { type: 'epics' });
@@ -981,7 +1139,7 @@ export function bootstrap(root_element) {
       }
 
       // Board tab subscribes to lists used by columns
-      if (s.view === 'board') {
+      if (view === 'board') {
         for (const col of board_columns) {
           const client_id = 'tab:board:' + col.id;
           if (
@@ -1014,6 +1172,8 @@ export function bootstrap(root_element) {
               });
           }
         }
+        // Dependency index for the Parent filter and the graph entry points
+        board_index.ensure();
       } else {
         // Unsubscribe all board lists when leaving the board view
         for (const [client_id, unsub] of unsub_board_map) {
@@ -1025,9 +1185,57 @@ export function bootstrap(root_element) {
           }
         }
         unsub_board_map.clear();
+        void board_index.teardown();
+      }
+
+      // Graph tab shares the board index's server key under its own client id
+      if (view === 'graph') {
+        graph_tab.ensure();
+      } else {
+        void graph_tab.teardown();
       }
     }
 
+    // --- Hidden browser tab: pause tab subscriptions after a grace period ---
+    /** How long the tab may stay hidden before its subscriptions pause. */
+    const HIDDEN_PAUSE_GRACE_MS = 30000;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let hidden_pause_timer = null;
+
+    function cancelHiddenPause() {
+      if (hidden_pause_timer !== null) {
+        clearTimeout(hidden_pause_timer);
+        hidden_pause_timer = null;
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        if (tabs_paused || hidden_pause_timer !== null) {
+          return;
+        }
+        hidden_pause_timer = setTimeout(() => {
+          hidden_pause_timer = null;
+          if (document.visibilityState !== 'hidden') {
+            return;
+          }
+          log('tab hidden past grace, pausing tab subscriptions');
+          tabs_paused = true;
+          ensureTabSubscriptions(store.getState());
+        }, HIDDEN_PAUSE_GRACE_MS);
+        return;
+      }
+      cancelHiddenPause();
+      if (tabs_paused) {
+        log('tab visible, resuming tab subscriptions');
+        tabs_paused = false;
+        // Fresh snapshots repopulate the stores and the views re-render
+        ensureTabSubscriptions(store.getState());
+      }
+    });
+
+    /** @type {ViewName | null} */
+    let routed_view = null;
     /**
      * Manage route visibility and list subscriptions per view.
      *
@@ -1038,6 +1246,7 @@ export function bootstrap(root_element) {
         issues_root &&
         epics_root &&
         board_root &&
+        graph_root &&
         settings_root &&
         detail_mount
       ) {
@@ -1045,6 +1254,7 @@ export function bootstrap(root_element) {
         issues_root.hidden = s.view !== 'issues';
         epics_root.hidden = s.view !== 'epics';
         board_root.hidden = s.view !== 'board';
+        graph_root.hidden = s.view !== 'graph';
         settings_root.hidden = s.view !== 'settings';
         // detail_mount visibility handled in subscription above
       }
@@ -1060,6 +1270,12 @@ export function bootstrap(root_element) {
       if (!s.selected_id && s.view === 'board') {
         void board_view.load();
       }
+      // The graph follows focus changes itself; load once per visit. It also
+      // renders under a dialog so a deep link shows the graph behind it.
+      if (s.view === 'graph' && routed_view !== 'graph') {
+        graph_view.load();
+      }
+      routed_view = s.view;
       window.localStorage.setItem('beads-ui.view', s.view);
     };
     store.subscribe(onRouteChange);

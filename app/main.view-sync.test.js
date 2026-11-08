@@ -42,4 +42,23 @@ describe('initial view sync on reload (#/epics)', () => {
     expect(issuesRoot.hidden).toBe(true);
     expect(epicsRoot.hidden).toBe(false);
   });
+
+  test('shows only the Graph view when hash is #/graph?focus=<id>', async () => {
+    window.location.hash = '#/graph?focus=UI-1';
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = /** @type {HTMLElement} */ (document.getElementById('app'));
+
+    bootstrap(root);
+    await Promise.resolve();
+
+    /** @param {string} id */
+    const hidden = (id) =>
+      /** @type {HTMLElement} */ (document.getElementById(id)).hidden;
+    expect(hidden('graph-root')).toBe(false);
+    expect(hidden('issues-root')).toBe(true);
+    expect(hidden('epics-root')).toBe(true);
+    expect(hidden('board-root')).toBe(true);
+    expect(hidden('settings-root')).toBe(true);
+    expect(window.localStorage.getItem('beads-ui.view')).toBe('graph');
+  });
 });
