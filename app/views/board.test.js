@@ -1289,6 +1289,38 @@ describe('views/board', () => {
     expect(triggerOf(mount, 'parent').getAttribute('aria-expanded')).toBe(
       'false'
     );
+    // The keyboard commit hides the menu, so focus returns to the trigger
+    expect(document.activeElement).toBe(triggerOf(mount, 'parent'));
+  });
+
+  test('Escape in the Parent picker closes it and focuses the trigger', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, { ready: [{ id: 'A-1', parent: 'A' }] });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    triggerOf(mount, 'parent').click();
+    const search = /** @type {HTMLInputElement} */ (
+      mount.querySelector('.board-parent-picker__search')
+    );
+    search.dispatchEvent(keydown('ArrowDown'));
+    expect(document.activeElement).toBe(parentRow(mount, ''));
+
+    keydownOnFocused('Escape');
+    expect(triggerOf(mount, 'parent').getAttribute('aria-expanded')).toBe(
+      'false'
+    );
+    expect(document.activeElement).toBe(triggerOf(mount, 'parent'));
+    expect(store.getState().board.board_filters.parent).toBeNull();
   });
 
   test('Parent picker search keeps matching rows and their ancestors', async () => {
@@ -1398,6 +1430,40 @@ describe('views/board', () => {
     });
     expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2']);
     expect(mount.querySelector('.board-filter-bar__clear')).toBeNull();
+  });
+
+  test('Clear filters resets the Assignee select after a user pick', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const store = createStore({ view: 'board' });
+    const issueStores = createTestIssueStores();
+    seedColumns(issueStores, {
+      ready: [
+        { id: 'R-1', assignee: 'alice' },
+        { id: 'R-2', assignee: 'bob' }
+      ]
+    });
+
+    const view = createBoardView({
+      mount_element: mount,
+      gotoIssue: () => {},
+      store,
+      issueStores
+    });
+    await view.load();
+
+    const assignee_select = /** @type {HTMLSelectElement} */ (
+      mount.querySelector('[aria-label="Filter by assignee"]')
+    );
+    assignee_select.value = 'alice';
+    assignee_select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(columnIds(mount, 'ready')).toEqual(['R-1']);
+
+    /** @type {HTMLButtonElement} */ (
+      mount.querySelector('.board-filter-bar__clear')
+    ).click();
+    expect(columnIds(mount, 'ready')).toEqual(['R-1', 'R-2']);
+    expect(assignee_select.value).toBe('');
   });
 
   test('each filter click saves once and does not re-read the stores', async () => {

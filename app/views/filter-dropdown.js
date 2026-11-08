@@ -10,7 +10,8 @@ import { html } from 'lit-html';
  * @typedef {Object} FilterDropdownController
  * @property {(key: string) => boolean} isOpen - Whether the dropdown `key` is open.
  * @property {(key: string) => void} toggle - Open `key` (closing any other) or close it.
- * @property {() => void} close - Close whichever dropdown is open.
+ * @property {() => void} close - Close whichever dropdown is open, returning
+ * focus to its trigger when focus was inside it.
  * @property {() => void} dispose - Remove the document listeners.
  */
 
@@ -56,6 +57,36 @@ export function createFilterDropdownController(options = {}) {
   }
 
   /**
+   * Close the open dropdown. When focus sits inside it, move focus back to its
+   * trigger after the re-render so the hidden menu does not drop focus to body.
+   */
+  function closeRestoringFocus() {
+    if (open_key === null) return;
+    const doc =
+      root.nodeType === Node.DOCUMENT_NODE
+        ? /** @type {Document} */ (root)
+        : root.ownerDocument || document;
+    const active = doc.activeElement;
+    const owner =
+      active && typeof active.closest === 'function'
+        ? active.closest('[data-filter]')
+        : null;
+    const key = open_key;
+    const had_focus = Boolean(
+      owner && owner.getAttribute('data-filter') === key
+    );
+    setOpen(null);
+    if (!had_focus) return;
+    const container = Array.from(doc.querySelectorAll('[data-filter]')).find(
+      (el) => el.getAttribute('data-filter') === key
+    );
+    const trigger = /** @type {HTMLElement | null} */ (
+      container ? container.querySelector('.filter-dropdown__trigger') : null
+    );
+    if (trigger) trigger.focus();
+  }
+
+  /**
    * @param {Event} ev
    */
   const onClick = (ev) => {
@@ -75,7 +106,7 @@ export function createFilterDropdownController(options = {}) {
   const onKeydown = (ev) => {
     if (open_key === null) return;
     if (/** @type {KeyboardEvent} */ (ev).key !== ESCAPE_KEY) return;
-    setOpen(null);
+    closeRestoringFocus();
   };
 
   root.addEventListener('click', onClick);
@@ -89,7 +120,7 @@ export function createFilterDropdownController(options = {}) {
       setOpen(open_key === key ? null : key);
     },
     close() {
-      setOpen(null);
+      closeRestoringFocus();
     },
     dispose() {
       root.removeEventListener('click', onClick);

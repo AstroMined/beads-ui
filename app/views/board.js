@@ -132,10 +132,21 @@ export function computeColMinWidth(
  * @property {(id: string) => void} [gotoGraph] - Open an issue in the Graph tab.
  * @property {{ getState: () => any, setState: (patch: any) => void, subscribe?: (fn: (s:any)=>void)=>()=>void }} [store]
  * @property {{ selectors: { getIds: (client_id: string) => string[], count?: (client_id: string) => number } }} [subscriptions]
- * @property {{ snapshotFor?: (client_id: string) => any[], subscribe?: (fn: () => void) => () => void }} [issueStores]
+ * @property {{ snapshotFor?: (client_id: string) => any[], getStore?: (client_id: string) => { snapshot: () => readonly any[] } | null, subscribe?: (fn: () => void) => () => void }} [issueStores]
  * @property {(type: string, payload: unknown) => Promise<unknown>} [transport] - Transport function for sending updates
  * @property {ColumnDef[]} [columns] - Column definitions from settings
  */
+
+/**
+ * Whether two lists hold the same entries, by identity, in the same order.
+ *
+ * @param {unknown[]} a
+ * @param {unknown[]} b
+ * @returns {boolean}
+ */
+function sameEntries(a, b) {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
 
 /**
  * Create the Board view with dynamic columns from settings.
@@ -220,6 +231,18 @@ export function createBoardView(options) {
   }
   /** Dependency index over the board-index snapshot and the board items. */
   let dep_index = buildDepIndex([]);
+  /**
+   * What `dep_index` was built from: the board store snapshot arrays, which a
+   * push replaces even when an upsert mutates an issue in place, then every
+   * index row and board item. Null forces the next rebuild.
+   *
+   * @type {unknown[] | null}
+   */
+  let dep_index_inputs = null;
+  /** The index `parent_options` was flattened from. */
+  let parent_options_index = dep_index;
+  /** @type {import('../data/parent-options.js').ParentOption[]} */
+  let parent_options = [];
   /** Board filters used when no store is provided. */
   let local_filters = createEmptyBoardFilters();
   /** Search text typed into the Parent picker. */
@@ -416,10 +439,50 @@ export function createBoardView(options) {
       issueStores && typeof issueStores.snapshotFor === 'function'
         ? issueStores.snapshotFor(BOARD_INDEX_CLIENT_ID)
         : [];
-    dep_index = buildDepIndex([
+    const rows = [
       ...(Array.isArray(index_rows) ? index_rows : []),
       ...boardItems()
-    ]);
+    ];
+    const inputs = [...boardStoreSnapshots(), ...rows];
+    if (dep_index_inputs !== null && sameEntries(dep_index_inputs, inputs)) {
+      return;
+    }
+    dep_index_inputs = inputs;
+    dep_index = buildDepIndex(rows);
+  }
+
+  /**
+   * Snapshot arrays of the board-index store and every column store, or none
+   * when the registry exposes no stores.
+   *
+   * @returns {Array<readonly unknown[] | null>}
+   */
+  function boardStoreSnapshots() {
+    if (!issueStores || typeof issueStores.getStore !== 'function') {
+      return [];
+    }
+    const get_store = issueStores.getStore.bind(issueStores);
+    return [
+      BOARD_INDEX_CLIENT_ID,
+      ...col_defs.map((col) => 'tab:board:' + col.id)
+    ].map((client_id) => get_store(client_id)?.snapshot() ?? null);
+  }
+
+  /**
+   * Parent picker options for the current index, flattened once per index.
+   *
+   * @param {IssueLite[]} items - The board items the index was built from.
+   * @returns {import('../data/parent-options.js').ParentOption[]}
+   */
+  function parentOptionsFor(items) {
+    if (parent_options_index !== dep_index) {
+      parent_options = flattenParentOptions(
+        dep_index,
+        items.map((it) => it.id)
+      );
+      parent_options_index = dep_index;
+    }
+    return parent_options;
   }
 
   /**
@@ -497,10 +560,7 @@ export function createBoardView(options) {
       .filter((t) => !known_types.has(t))
       .sort((a, b) => a.localeCompare(b));
     return {
-      parents: flattenParentOptions(
-        dep_index,
-        items.map((it) => it.id)
-      ),
+      parents: parentOptionsFor(items),
       assignees: Array.from(assignees).sort((a, b) => a.localeCompare(b)),
       types: [
         ...KNOWN_TYPE_OPTIONS,
@@ -866,10 +926,12 @@ export function createBoardView(options) {
             doRender();
           }}
         >
-          <option value="">All Assignees</option>
+          <option value="" .selected=${current.assignee === null}>
+            All Assignees
+          </option>
           ${filter_options.assignees.map(
             (a) =>
-              html`<option value=${a} ?selected=${current.assignee === a}>
+              html`<option value=${a} .selected=${current.assignee === a}>
                 ${a}
               </option>`
           )}
@@ -1149,7 +1211,7 @@ export function createBoardView(options) {
    * and update card condensation classes on resize.
    */
   function setupResizeObserver() {
-    if (typeof ResizeObserver === 'undefined') {
+    if (typeof ResizeObserver === 'undefined' || resize_observer) {
       return;
     }
     resize_observer = new ResizeObserver(() => {
@@ -1806,6 +1868,7 @@ export function createBoardView(options) {
         }
       }
       dep_index = buildDepIndex([]);
+      dep_index_inputs = null;
     }
   };
 }

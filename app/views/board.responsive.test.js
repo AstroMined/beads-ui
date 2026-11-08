@@ -163,6 +163,19 @@ describe('ResizeObserver integration', () => {
     expect(mockObserverInstance.disconnect).toHaveBeenCalledOnce();
   });
 
+  test('repeated load() keeps a single ResizeObserver that clear() releases', async () => {
+    document.body.innerHTML = '<div id="m"></div>';
+    const mount = /** @type {HTMLElement} */ (document.getElementById('m'));
+    const view = await createAndLoadBoard(mount);
+
+    await view.load();
+    await view.load();
+    expect(mockObserverInstance.observe).toHaveBeenCalledOnce();
+
+    view.clear();
+    expect(mockObserverInstance.disconnect).toHaveBeenCalledOnce();
+  });
+
   test('cards get board-card--condensed class when column width < 260px', async () => {
     document.body.innerHTML = '<div id="m"></div>';
     const mount = /** @type {HTMLElement} */ (document.getElementById('m'));

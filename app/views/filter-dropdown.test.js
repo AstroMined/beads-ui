@@ -113,6 +113,54 @@ describe('views/filter-dropdown', () => {
     controller.dispose();
   });
 
+  test('Escape and close() return focus from inside the menu to its trigger', () => {
+    const { controller, dropdown, trigger } = setup();
+    /** @param {string} key */
+    const firstCheckbox = (key) =>
+      /** @type {HTMLInputElement} */ (
+        dropdown(key).querySelector('input[type="checkbox"]')
+      );
+
+    trigger('a').click();
+    firstCheckbox('a').focus();
+    firstCheckbox('a').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    );
+    expect(controller.isOpen('a')).toBe(false);
+    expect(document.activeElement).toBe(trigger('a'));
+
+    trigger('b').click();
+    firstCheckbox('b').focus();
+    controller.close();
+    expect(controller.isOpen('b')).toBe(false);
+    expect(document.activeElement).toBe(trigger('b'));
+    controller.dispose();
+  });
+
+  test('closing leaves focus alone when it is outside the open menu', () => {
+    const { controller, dropdown, trigger } = setup();
+    trigger('a').click();
+    const other = /** @type {HTMLInputElement} */ (
+      dropdown('b').querySelector('input[type="checkbox"]')
+    );
+    other.focus();
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    );
+    expect(controller.isOpen('a')).toBe(false);
+    expect(document.activeElement).toBe(other);
+
+    trigger('a').click();
+    const inside = /** @type {HTMLInputElement} */ (
+      dropdown('a').querySelector('input[type="checkbox"]')
+    );
+    inside.focus();
+    /** @type {HTMLElement} */ (document.getElementById('outside')).click();
+    expect(controller.isOpen('a')).toBe(false);
+    expect(document.activeElement).toBe(inside);
+    controller.dispose();
+  });
+
   test('close() and toggle() notify onChange only when state changes', () => {
     const on_change = vi.fn();
     const controller = createFilterDropdownController({ onChange: on_change });
