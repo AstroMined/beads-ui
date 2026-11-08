@@ -1,5 +1,9 @@
 import { describe, expect, test, vi } from 'vitest';
-import { MAX_GRAPH_NODES, buildDepIndex } from '../data/dep-graph.js';
+import {
+  MAX_GRAPH_NODES,
+  buildDepIndex,
+  computeSuggestions
+} from '../data/dep-graph.js';
 import {
   GRAPH_CLIENT_ID,
   graphIssuesSpec
@@ -10,7 +14,11 @@ import { createGraphView } from './graph.js';
 
 vi.mock(import('../data/dep-graph.js'), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, buildDepIndex: vi.fn(actual.buildDepIndex) };
+  return {
+    ...actual,
+    buildDepIndex: vi.fn(actual.buildDepIndex),
+    computeSuggestions: vi.fn(actual.computeSuggestions)
+  };
 });
 
 /**
@@ -21,6 +29,8 @@ vi.mock(import('../data/dep-graph.js'), async (importOriginal) => {
 const FAN_OUT = 10;
 /** Prerequisites of each first-level prerequisite in that fixture. */
 const FAN_IN = 14;
+/** Upserts pushed in one task by the coalescing test. */
+const BURST_SIZE = 5;
 
 /**
  * @param {string} target
@@ -61,6 +71,22 @@ function chainRows() {
     row('B', { dependencies: [blockedBy('C')] }),
     row('A', { dependencies: [blockedBy('B')] }),
     row('D', { dependencies: [blockedBy('A')] })
+  ];
+}
+
+/**
+ * A two-level slice around A whose refocus on Y draws fewer, reordered nodes:
+ * Y blocks X and Z, X and B block A, C blocks B, A blocks D.
+ */
+function refocusRows() {
+  return [
+    row('C'),
+    row('Y'),
+    row('X', { dependencies: [blockedBy('Y')] }),
+    row('B', { dependencies: [blockedBy('C')] }),
+    row('A', { dependencies: [blockedBy('B'), blockedBy('X')] }),
+    row('D', { dependencies: [blockedBy('A')] }),
+    row('Z', { dependencies: [blockedBy('Y')] })
   ];
 }
 
@@ -196,6 +222,11 @@ function node(mount, id) {
     throw new Error(`missing node ${id}`);
   }
   return found;
+}
+
+/** Let queued store-driven renders run. */
+function settle() {
+  return Promise.resolve();
 }
 
 /**
@@ -510,11 +541,12 @@ describe('views/graph plan pane', () => {
     );
   });
 
-  test('a live upsert that closes a blocker moves the next item into Step 1', () => {
+  test('a live upsert that closes a blocker moves the next item into Step 1', async () => {
     const { mount, pushUpsert } = setup({ rows: chainRows(), focus: 'A' });
     expect(stepIds(mount)).toEqual([['C'], ['B']]);
 
     pushUpsert(row('C', { status: 'closed' }));
+    await settle();
 
     expect(stepIds(mount)).toEqual([['B']]);
     expect(
@@ -618,6 +650,7 @@ describe('views/graph graph pane', () => {
 
     const chip = q(mount, '.graph-fold-chip[data-id="E"]');
     expect(text(chip)).toBe('+2');
+    chip.focus();
     chip.click();
 
     expect(
@@ -626,6 +659,9 @@ describe('views/graph graph pane', () => {
         .sort()
     ).toEqual(['E', 'E1', 'E2', 'X']);
     expect(mount.querySelector('.graph-fold-chip')).toBeNull();
+    expect(document.activeElement).toBe(node(mount, 'E'));
+    expect(node(mount, 'E').getAttribute('tabindex')).toBe('0');
+    expect(node(mount, 'X').getAttribute('tabindex')).toBe('-1');
   });
 
   test('hovering a node highlights its edges', () => {
@@ -681,6 +717,45 @@ describe('views/graph graph pane', () => {
     expect(gotoGraph).toHaveBeenCalledWith('D');
     expect(text(q(mount, '.graph-focus__title'))).toBe('D Title D');
     expect(node(mount, 'D').getAttribute('tabindex')).toBe('0');
+    expect(document.activeElement).toBe(node(mount, 'D'));
+  });
+
+  test('Enter moves DOM focus to the refocused node, not the reused button', () => {
+    const { mount } = setup({ rows: refocusRows(), focus: 'A' });
+    expect(qa(mount, '.graph-node').map((n) => n.dataset.id)).toEqual([
+      'C',
+      'Y',
+      'B',
+      'X',
+      'A',
+      'D'
+    ]);
+
+    node(mount, 'Y').focus();
+    press(node(mount, 'Y'), 'Enter');
+
+    expect(text(q(mount, '.graph-focus__title'))).toBe('Y Title Y');
+    expect(document.activeElement).toBe(node(mount, 'Y'));
+    expect(node(mount, 'Y').getAttribute('tabindex')).toBe('0');
+  });
+
+  test('Enter moves DOM focus once an asynchronous route change renders', async () => {
+    const { mount, store, gotoGraph } = setup({
+      rows: refocusRows(),
+      focus: 'A'
+    });
+    gotoGraph.mockImplementation((id) =>
+      queueMicrotask(() => store.setState({ graph: { focus_id: id } }))
+    );
+
+    node(mount, 'Y').focus();
+    press(node(mount, 'Y'), 'Enter');
+    expect(text(q(mount, '.graph-focus__title'))).toBe('A Title A');
+
+    await settle();
+
+    expect(text(q(mount, '.graph-focus__title'))).toBe('Y Title Y');
+    expect(document.activeElement).toBe(node(mount, 'Y'));
   });
 
   test('draws the legend with named line patterns', () => {
@@ -769,7 +844,7 @@ describe('views/graph toolbar', () => {
 });
 
 describe('views/graph lifecycle', () => {
-  test('rebuilds the index only when the graph store changes', () => {
+  test('rebuilds the index only when the graph store changes', async () => {
     const { mount, issue_stores, pushUpsert } = setup({
       rows: chainRows(),
       focus: 'A'
@@ -789,9 +864,31 @@ describe('views/graph lifecycle', () => {
     expect(builds()).toBe(before);
 
     pushUpsert(row('C', { title: 'Renamed C' }));
+    await settle();
 
     expect(builds()).toBe(before + 1);
     expect(text(q(mount, '.graph-item[data-id="C"]'))).toContain('Renamed C');
+  });
+
+  test('a burst of upserts in one task builds the index and suggestions once', async () => {
+    const { mount, pushUpsert } = setup({ rows: chainRows() });
+    const builds = () => vi.mocked(buildDepIndex).mock.calls.length;
+    const passes = () => vi.mocked(computeSuggestions).mock.calls.length;
+    const builds_before = builds();
+    const passes_before = passes();
+
+    for (let i = 1; i <= BURST_SIZE; i++) {
+      pushUpsert(row('C', { title: `Renamed C ${i}` }));
+    }
+    expect(builds()).toBe(builds_before);
+
+    await settle();
+
+    expect(builds()).toBe(builds_before + 1);
+    expect(passes()).toBe(passes_before + 1);
+    expect(text(q(mount, '[data-group="start-here"]'))).toContain(
+      `Renamed C ${BURST_SIZE}`
+    );
   });
 
   test('destroy empties the mount and stops listening', () => {

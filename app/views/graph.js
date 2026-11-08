@@ -266,6 +266,11 @@ export function createGraphView({
   let active_node = null;
   /** @type {string | null} */
   let highlight_node = null;
+  /** Node a keyboard refocus moves DOM focus to once that focus renders. */
+  /** @type {string | null} */
+  let pending_focus_node = null;
+  /** Whether a store-driven render is already queued for this task. */
+  let render_queued = false;
 
   let query = '';
   let picker_open = false;
@@ -385,6 +390,12 @@ export function createGraphView({
       return;
     }
     render(template(), mount_element);
+    // The route change lands asynchronously, so move focus once it renders
+    if (pending_focus_node !== null && pending_focus_node === focus_id) {
+      const id = pending_focus_node;
+      pending_focus_node = null;
+      focusNodeButton(id);
+    }
   }
 
   /** @param {string | null} id */
@@ -400,12 +411,26 @@ export function createGraphView({
     highlight_node = null;
   }
 
-  // Re-render only when the graph store itself applied a message
+  function graphStoreUnchanged() {
+    return index !== null && storeKey() === index_key;
+  }
+
+  function flushQueuedRender() {
+    render_queued = false;
+    if (!graphStoreUnchanged()) {
+      doRender();
+    }
+  }
+
+  // Re-render only when the graph store itself applied a message, once per
+  // burst: the server sends one envelope per changed bead, and each render
+  // rebuilds the index and the suggestions.
   const off_issues = issue_stores.subscribe(() => {
-    if (index !== null && storeKey() === index_key) {
+    if (render_queued || graphStoreUnchanged()) {
       return;
     }
-    doRender();
+    render_queued = true;
+    queueMicrotask(flushQueuedRender);
   });
 
   /**
@@ -420,6 +445,9 @@ export function createGraphView({
     }
     focus_id = next;
     resetFocusState();
+    if (pending_focus_node !== next) {
+      pending_focus_node = null;
+    }
     return true;
   }
 
@@ -1239,6 +1267,9 @@ export function createGraphView({
       if (ev.shiftKey) {
         gotoIssue(id);
       } else {
+        if (id !== focus_id) {
+          pending_focus_node = id;
+        }
         refocus(id);
       }
       return;
@@ -1434,7 +1465,10 @@ export function createGraphView({
       @click=${() => {
         expanded.add(n.id);
         expand_rev++;
+        // The chip leaves the DOM, so keep focus on its container's node
+        active_node = n.id;
         doRender();
+        focusNodeButton(n.id);
       }}
     >
       +${folded.length}
