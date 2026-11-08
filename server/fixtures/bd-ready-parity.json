@@ -1,0 +1,989 @@
+{
+  "bd_version": "0.63.3",
+  "captured_at": "2026-11-08T03:08:22Z",
+  "commands": {
+    "open_set": "bd list --json --tree=false --limit 0",
+    "ready": "bd ready --json --limit 1000",
+    "blocked": "bd blocked --json",
+    "ready_include_ephemeral": "bd ready --json --limit 1000 --include-ephemeral",
+    "ready_include_deferred": "bd ready --json --limit 1000 --include-deferred",
+    "outside_open_set": "bd list --json --tree=false --limit 0 --all, minus the open set"
+  },
+  "workspace_config": {
+    "status.custom": "in_review,qa_testing:active,on_hold:frozen,building:wip",
+    "dolt.auto-commit": "on"
+  },
+  "open_set": [
+    {
+      "id": "pw-after-done",
+      "title": "Dependent of a closed blocker",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "task",
+      "labels": ["frontend"],
+      "dependencies": [
+        {
+          "depends_on_id": "pw-done-blocker",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-blkep",
+      "title": "Epic blocked by open epic",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "epic",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-gate-ep",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-blkep.1",
+      "title": "Child of blocked epic",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-blkep",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-blkep"
+    },
+    {
+      "id": "pw-blkep.1.1",
+      "title": "Grandchild of blocked epic",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-blkep.1",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-blkep.1"
+    },
+    {
+      "id": "pw-blkep.2",
+      "title": "In progress child of blocked epic",
+      "status": "in_progress",
+      "priority": 4,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-blkep",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-blkep"
+    },
+    {
+      "id": "pw-blkep2",
+      "title": "Epic created with a task blocker via deps",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "epic",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-by-deferred",
+      "title": "Task blocked by a deferred task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-defer-status",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-by-hooked",
+      "title": "Task blocked by a hooked task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-st-hooked",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-by-pinned",
+      "title": "Task blocked by a pinned task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-st-pinned",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-by-review",
+      "title": "Task blocked by an in_review task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-st-review",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-by-wip",
+      "title": "Task blocked by an in progress task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-st-wip",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-chain-a",
+      "title": "Chain node A",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 2
+    },
+    {
+      "id": "pw-chain-b",
+      "title": "Chain node B",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-a",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-chain-b.1",
+      "title": "Child of a blocked task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-b",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-chain-b"
+    },
+    {
+      "id": "pw-chain-c",
+      "title": "Chain node C",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-b",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-chain-c.1",
+      "title": "Blocked child of a blocked task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-c",
+          "type": "parent-child"
+        },
+        {
+          "depends_on_id": "pw-cyc-y",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0,
+      "parent": "pw-chain-c"
+    },
+    {
+      "id": "pw-cyc-x",
+      "title": "Cycle node X",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "labels": ["cycle"],
+      "dependencies": [
+        {
+          "depends_on_id": "pw-cyc-y",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-cyc-y",
+      "title": "Cycle node Y",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "labels": ["cycle"],
+      "dependency_count": 0,
+      "dependent_count": 2
+    },
+    {
+      "id": "pw-defer-ep",
+      "title": "Deferred epic with an open child",
+      "status": "deferred",
+      "priority": 2,
+      "issue_type": "epic",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-defer-ep.1",
+      "title": "Open child of a deferred epic",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-defer-ep",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-defer-ep"
+    },
+    {
+      "id": "pw-defer-future",
+      "title": "Open task with future defer_until",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "defer_until": "2026-12-07T22:04:27Z",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-defer-past",
+      "title": "Open task with past defer_until",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "defer_until": "2020-01-15T00:00:00Z",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-defer-status",
+      "title": "Task deferred by status",
+      "status": "deferred",
+      "priority": 2,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-defer-until",
+      "title": "Task deferred with until",
+      "status": "deferred",
+      "priority": 2,
+      "issue_type": "task",
+      "defer_until": "2026-11-21T22:04:30Z",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-discovered",
+      "title": "Task discovered from an open task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-a",
+          "type": "discovered-from"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-ephem",
+      "title": "Ephemeral task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "ephemeral": true,
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-ext",
+      "title": "Task with an external blocker",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "external_ref": "gh-9",
+      "dependencies": [
+        {
+          "depends_on_id": "external:otherproj:somecap",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-ext.1",
+      "title": "Child of a task with an external blocker",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-ext",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-ext"
+    },
+    {
+      "id": "pw-feat",
+      "title": "Parity feature root",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "feature",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-feat.1",
+      "title": "Epic with open children",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "epic",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-feat",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-feat"
+    },
+    {
+      "id": "pw-feat.1.1",
+      "title": "Open child task one",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "labels": ["frontend"],
+      "dependencies": [
+        {
+          "depends_on_id": "pw-feat.1",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-feat.1"
+    },
+    {
+      "id": "pw-feat.1.2",
+      "title": "In progress child task",
+      "status": "in_progress",
+      "priority": 3,
+      "issue_type": "task",
+      "assignee": "alice",
+      "labels": ["api", "backend"],
+      "dependencies": [
+        {
+          "depends_on_id": "pw-feat.1",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-feat.1"
+    },
+    {
+      "id": "pw-gate",
+      "title": "Open blocker of an epic",
+      "status": "open",
+      "priority": 0,
+      "issue_type": "task",
+      "labels": ["infra"],
+      "dependency_count": 0,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-gate-ep",
+      "title": "Open epic that blocks another epic",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "epic",
+      "dependency_count": 0,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-gate-ep.1",
+      "title": "Child of the blocker epic",
+      "status": "open",
+      "priority": 3,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-gate-ep",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-gate-ep"
+    },
+    {
+      "id": "pw-related",
+      "title": "Task with only a related link",
+      "status": "open",
+      "priority": 3,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-a",
+          "type": "related"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-st-blocked",
+      "title": "Chore in blocked status without deps",
+      "status": "blocked",
+      "priority": 0,
+      "issue_type": "chore",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-st-blocked.1",
+      "title": "Child of a status-blocked chore",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-st-blocked",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-st-blocked"
+    },
+    {
+      "id": "pw-st-build",
+      "title": "Open task, building status refused",
+      "status": "open",
+      "priority": 3,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-st-hold",
+      "title": "Open task, on_hold status refused",
+      "status": "open",
+      "priority": 3,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-st-hooked",
+      "title": "Task in hooked status",
+      "status": "hooked",
+      "priority": 3,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-st-qa",
+      "title": "Open task, qa_testing status refused",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-st-review",
+      "title": "Task in custom status in_review",
+      "status": "in_review",
+      "priority": 1,
+      "issue_type": "task",
+      "dependency_count": 0,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-st-wip",
+      "title": "Task in progress with no deps",
+      "status": "in_progress",
+      "priority": 1,
+      "issue_type": "task",
+      "assignee": "bob",
+      "dependency_count": 0,
+      "dependent_count": 1
+    },
+    {
+      "id": "pw-wip-ep",
+      "title": "In progress epic with a blocked child",
+      "status": "in_progress",
+      "priority": 2,
+      "issue_type": "epic",
+      "dependency_count": 0,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-wip-ep.1",
+      "title": "Child blocked by chain node A",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-chain-a",
+          "type": "blocks"
+        },
+        {
+          "depends_on_id": "pw-wip-ep",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0,
+      "parent": "pw-wip-ep"
+    },
+    {
+      "id": "pw-wipblk",
+      "title": "In progress task with an open blocker",
+      "status": "in_progress",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-gate",
+          "type": "blocks"
+        }
+      ],
+      "dependency_count": 1,
+      "dependent_count": 0
+    },
+    {
+      "id": "pw-wipblk.1",
+      "title": "Child of an in progress blocked task",
+      "status": "open",
+      "priority": 2,
+      "issue_type": "task",
+      "dependencies": [
+        {
+          "depends_on_id": "pw-wipblk",
+          "type": "parent-child"
+        }
+      ],
+      "dependency_count": 0,
+      "dependent_count": 0,
+      "parent": "pw-wipblk"
+    }
+  ],
+  "outside_open_set": [
+    {
+      "id": "pw-done-blocker",
+      "status": "closed",
+      "issue_type": "task"
+    },
+    {
+      "id": "pw-ep-done",
+      "status": "closed",
+      "issue_type": "epic"
+    },
+    {
+      "id": "pw-ep-done.1",
+      "status": "closed",
+      "issue_type": "task"
+    },
+    {
+      "id": "pw-st-pinned",
+      "status": "pinned",
+      "issue_type": "task"
+    }
+  ],
+  "ready_ids": [
+    "pw-after-done",
+    "pw-blkep.1.1",
+    "pw-blkep2",
+    "pw-by-pinned",
+    "pw-chain-a",
+    "pw-cyc-y",
+    "pw-defer-ep.1",
+    "pw-defer-past",
+    "pw-discovered",
+    "pw-ext",
+    "pw-ext.1",
+    "pw-feat",
+    "pw-feat.1",
+    "pw-feat.1.1",
+    "pw-gate",
+    "pw-gate-ep",
+    "pw-gate-ep.1",
+    "pw-related",
+    "pw-st-blocked.1",
+    "pw-st-build",
+    "pw-st-hold",
+    "pw-st-qa"
+  ],
+  "ready_ids_include_ephemeral": [
+    "pw-after-done",
+    "pw-blkep.1.1",
+    "pw-blkep2",
+    "pw-by-pinned",
+    "pw-chain-a",
+    "pw-cyc-y",
+    "pw-defer-ep.1",
+    "pw-defer-past",
+    "pw-discovered",
+    "pw-ephem",
+    "pw-ext",
+    "pw-ext.1",
+    "pw-feat",
+    "pw-feat.1",
+    "pw-feat.1.1",
+    "pw-gate",
+    "pw-gate-ep",
+    "pw-gate-ep.1",
+    "pw-related",
+    "pw-st-blocked.1",
+    "pw-st-build",
+    "pw-st-hold",
+    "pw-st-qa"
+  ],
+  "ready_ids_include_deferred": [
+    "pw-after-done",
+    "pw-blkep.1.1",
+    "pw-blkep2",
+    "pw-by-pinned",
+    "pw-chain-a",
+    "pw-cyc-y",
+    "pw-defer-ep.1",
+    "pw-defer-future",
+    "pw-defer-past",
+    "pw-discovered",
+    "pw-ext",
+    "pw-ext.1",
+    "pw-feat",
+    "pw-feat.1",
+    "pw-feat.1.1",
+    "pw-gate",
+    "pw-gate-ep",
+    "pw-gate-ep.1",
+    "pw-related",
+    "pw-st-blocked.1",
+    "pw-st-build",
+    "pw-st-hold",
+    "pw-st-qa"
+  ],
+  "blocked": [
+    {
+      "id": "pw-blkep",
+      "status": "open",
+      "blocked_by": ["pw-gate-ep"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-blkep.1",
+      "status": "open",
+      "blocked_by": ["pw-blkep"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-blkep.2",
+      "status": "in_progress",
+      "blocked_by": ["pw-blkep"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-by-deferred",
+      "status": "open",
+      "blocked_by": ["pw-defer-status"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-by-hooked",
+      "status": "open",
+      "blocked_by": ["pw-st-hooked"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-by-review",
+      "status": "open",
+      "blocked_by": ["pw-st-review"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-by-wip",
+      "status": "open",
+      "blocked_by": ["pw-st-wip"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-chain-b",
+      "status": "open",
+      "blocked_by": ["pw-chain-a"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-chain-b.1",
+      "status": "open",
+      "blocked_by": ["pw-chain-b"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-chain-c",
+      "status": "open",
+      "blocked_by": ["pw-chain-b"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-chain-c.1",
+      "status": "open",
+      "blocked_by": ["pw-cyc-y"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-cyc-x",
+      "status": "open",
+      "blocked_by": ["pw-cyc-y"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-wip-ep.1",
+      "status": "open",
+      "blocked_by": ["pw-chain-a"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-wipblk",
+      "status": "in_progress",
+      "blocked_by": ["pw-gate"],
+      "blocked_by_count": 1
+    },
+    {
+      "id": "pw-wipblk.1",
+      "status": "open",
+      "blocked_by": ["pw-wipblk"],
+      "blocked_by_count": 1
+    }
+  ],
+  "blocked_ids": [
+    "pw-blkep",
+    "pw-blkep.1",
+    "pw-blkep.2",
+    "pw-by-deferred",
+    "pw-by-hooked",
+    "pw-by-review",
+    "pw-by-wip",
+    "pw-chain-b",
+    "pw-chain-b.1",
+    "pw-chain-c",
+    "pw-chain-c.1",
+    "pw-cyc-x",
+    "pw-wip-ep.1",
+    "pw-wipblk",
+    "pw-wipblk.1"
+  ],
+  "rules": {
+    "open_set": "bd list (default filter) returns every non-closed bead except status pinned; deferred, hooked, ephemeral and custom statuses such as in_review are included. bd list --all adds closed and pinned beads.",
+    "resolved_blocker": "A blocks dependency counts only when its depends_on_id is in the open set. Closed targets, pinned targets and external:<project>:<capability> refs (no external_projects config) are resolved and never block.",
+    "blocking_dep_types": "Only type blocks blocks. parent-child, related and discovered-from never block.",
+    "blocker_status": "Any open-set status of the target blocks: open, in_progress, blocked, deferred, hooked and in_review were each observed to block.",
+    "direct_blockers": "direct(x) = depends_on_id of x's blocks dependencies whose target is in the open set.",
+    "inherited_blockers": "x is also blocked when its parent p is in the open set and direct(p) is non-empty, whatever p's status (in_progress parent observed). Inheritance is one level only: a grandchild of a directly blocked bead is ready (pw-blkep.1.1), and a parent blocked only by status blocked or only by an external ref passes nothing down.",
+    "blocked_set": "bd blocked lists every open-set bead with direct(x) non-empty or an inherited blocker, including in_progress beads (pw-blkep.2, pw-wipblk). It is dependency-only: status blocked with no blocking dependency is absent (pw-st-blocked).",
+    "blocked_by_field": "blocked_by is direct(x) when non-empty, otherwise [parent id]; blocked_by_count is its length. A bead with both an own and an inherited blocker lists only the own blocker (pw-chain-c.1). Ordering with several direct blockers was not captured.",
+    "ready_set": "ready(x) = status is open AND x is not in the blocked set AND ephemeral is not true AND (defer_until is absent or null, or defer_until <= now). Issue type does not matter: features, epics with open children, childless epics and chores qualify.",
+    "ready_statuses": "Only status open was observed in bd ready. in_progress, blocked, deferred, hooked, pinned and the uncategorised custom status in_review are excluded. bd statuses says a custom status with category active also qualifies, but bd update refused every categorised custom status in 0.63.3 so this was not observed.",
+    "deferred": "Status deferred is excluded with or without defer_until. An open bead with a future defer_until is excluded (included by --include-deferred); a past defer_until is ready.",
+    "deferred_ancestor": "A deferred parent does not hide or block its open child (pw-defer-ep.1 is ready).",
+    "ephemeral": "Ephemeral beads appear in the open set with ephemeral true and are excluded from bd ready unless --include-ephemeral.",
+    "epics": "Epics with open children are ready when open and unblocked. An open epic whose last child is closed is auto-closed by bd (close_reason 'all steps complete').",
+    "parity_check": "The rules above, applied to open_set with now = captured_at, reproduce ready_ids, blocked_ids and every blocked_by exactly."
+  },
+  "manifest_probe": [
+    {
+      "op": "read: bd list --json --tree=false --limit 0",
+      "changed": false
+    },
+    {
+      "op": "read: bd ready --json --limit 1000",
+      "changed": false
+    },
+    {
+      "op": "read: bd blocked --json",
+      "changed": false
+    },
+    {
+      "op": "read: bd show --json",
+      "changed": false
+    },
+    {
+      "op": "create",
+      "changed": true
+    },
+    {
+      "op": "update status",
+      "changed": true
+    },
+    {
+      "op": "update priority",
+      "changed": true
+    },
+    {
+      "op": "update title",
+      "changed": true
+    },
+    {
+      "op": "update assignee",
+      "changed": true
+    },
+    {
+      "op": "dep add",
+      "changed": true
+    },
+    {
+      "op": "dep remove",
+      "changed": true
+    },
+    {
+      "op": "label add",
+      "changed": true
+    },
+    {
+      "op": "label remove",
+      "changed": true
+    },
+    {
+      "op": "comments add",
+      "changed": true
+    },
+    {
+      "op": "close",
+      "changed": true
+    },
+    {
+      "op": "reopen",
+      "changed": true
+    },
+    {
+      "op": "update status to its current value (no-op)",
+      "changed": true
+    },
+    {
+      "op": "defer --until",
+      "changed": true
+    },
+    {
+      "op": "undefer",
+      "changed": true
+    },
+    {
+      "op": "update priority with --dolt-auto-commit off",
+      "changed": true
+    },
+    {
+      "op": "read: bd list after the auto-commit-off write",
+      "changed": false
+    }
+  ],
+  "manifest_probe_notes": [
+    "Manifest path: <workspace>/.beads/embeddeddolt/<db>/.dolt/noms/manifest; compared with shasum -a 256.",
+    "A read rewrites the manifest mtime (observed 1794107310 to 1794107316 on bd list) but never its content.",
+    "Every write kind tried changed the hash, including a no-op status update and a write with auto-commit off."
+  ],
+  "notes": [
+    "pw-feat > pw-feat.1 > pw-feat.1.1, pw-feat.1.2: feature > epic > tasks; pw-feat.1 is an unblocked epic with open children, pw-feat.1.2 is in_progress, child labels inherit from the parent by default.",
+    "pw-chain-a -> pw-chain-b -> pw-chain-c: blocks chain; pw-chain-b.1 inherits pw-chain-b; pw-chain-c.1 has its own blocker (pw-cyc-y) plus an inherited one.",
+    "pw-gate-ep blocks pw-blkep: epic blocked by an open epic; pw-blkep.1 and in_progress pw-blkep.2 inherit it, grandchild pw-blkep.1.1 does not.",
+    "REFUSED: a task blocking an epic or an epic blocking a task (bd dep add and create --deps both fail with 'epics can only block other epics, not tasks' or 'tasks can only block other tasks, not epics'; the wording is inverted relative to the edge). pw-gate is an open P0 task that instead blocks pw-wipblk, and pw-blkep2 is the childless epic left by the refused create --deps probe.",
+    "pw-wipblk: in_progress task blocked by pw-gate; its child pw-wipblk.1 inherits.",
+    "pw-defer-future (--defer +30d), pw-defer-past (--defer 2020-01-15), pw-defer-status (bd defer), pw-defer-until (bd defer --until=+14d), pw-defer-ep with open child pw-defer-ep.1.",
+    "FINDING: defer_until is written as local wall-clock time with a Z suffix (host UTC-5: --until +14d at 22:04 local stored 2026-11-21T22:04:30Z while created_at is 03:04Z UTC). Dependency created_at shows the same skew. A derived defer check near the boundary can disagree with bd by the host offset.",
+    "pw-st-review: custom status in_review (no category) accepted; it is excluded from ready and still blocks pw-by-review.",
+    "REFUSED: categorised custom statuses qa_testing:active, on_hold:frozen and building:wip are listed by bd statuses, but bd update --status rejects them as invalid; pw-st-qa, pw-st-hold and pw-st-build stayed open and are ready.",
+    "pw-st-blocked: status blocked with no dependency; absent from bd blocked and from bd ready. Its child pw-st-blocked.1 is ready.",
+    "pw-st-wip (in_progress) blocks pw-by-wip; pw-defer-status (deferred) blocks pw-by-deferred; pw-st-hooked (hooked) blocks pw-by-hooked; pw-st-pinned (pinned, outside the open set) does not block pw-by-pinned.",
+    "pw-wip-ep: in_progress epic, not ready; its child pw-wip-ep.1 is blocked by pw-chain-a.",
+    "REFUSED: 2-cycle. pw-cyc-x depends on pw-cyc-y was added; the reverse edge failed with 'adding dependency would create a cycle'. pw-cyc-y is ready, pw-cyc-x is blocked.",
+    "pw-done-blocker (closed, in outside_open_set) blocks pw-after-done, which is ready.",
+    "pw-ext: external_ref gh-9 plus a blocks dependency on external:otherproj:somecap; bd ready --explain reports the external blocker as resolved, so pw-ext and its child pw-ext.1 are ready.",
+    "pw-related (related) and pw-discovered (discovered-from) depend on open pw-chain-a and are ready.",
+    "pw-ep-done: epic auto-closed when its only child pw-ep-done.1 closed; both are in outside_open_set.",
+    "pw-ephem: --ephemeral task, in the open set with ephemeral true, only in ready_ids_include_ephemeral.",
+    "Priorities 0 to 4 and labels frontend, backend, api, infra, cycle are spread across the set; assignees alice and bob are set on two beads.",
+    "Rows keep bd's own field presence: a key bd omits is omitted here. dependencies are reduced to depends_on_id and type and include parent-child edges, which mirror parent.",
+    "bd label list-all and bd list --format digraph were not run (they hang on 0.63.3)."
+  ]
+}
