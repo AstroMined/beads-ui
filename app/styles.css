@@ -3019,6 +3019,15 @@ button.graph-crumb:hover {
   justify-content: space-between;
   gap: var(--space-2);
 }
+/* Ids share the workspace prefix, so clip the start and keep the suffix. */
+.graph-node__id {
+  min-width: 0;
+  direction: rtl;
+  text-align: left;
+}
+.graph-node__head .graph-state-chip {
+  flex-shrink: 0;
+}
 .graph-node__title {
   display: block;
   min-width: 0;

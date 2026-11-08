@@ -1440,7 +1440,9 @@ export function createGraphView({
       @mouseleave=${() => setHighlight(null)}
     >
       <span class="graph-node__head">
-        <span class="mono">${n.id}</span>
+        <span class="mono text-truncate graph-node__id" title=${n.id}
+          >${n.id}</span
+        >
         <span class="graph-state-chip is-${state}">${STATE_SHORT[state]}</span>
       </span>
       <span class="graph-node__title text-truncate">${title}</span>

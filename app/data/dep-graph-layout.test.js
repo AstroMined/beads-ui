@@ -157,6 +157,33 @@ describe('layoutGraph', () => {
     );
   });
 
+  test('routes an edge that skips a column through its own row slot', () => {
+    const layout = layoutGraph({
+      nodes: [
+        { id: 'a', column: 0 },
+        { id: 'b', column: 1 },
+        { id: 'c', column: 2 }
+      ],
+      edges: [
+        { from: 'a', to: 'b', kind: 'blocks' },
+        { from: 'b', to: 'c', kind: 'blocks' },
+        { from: 'a', to: 'c', kind: 'child' }
+      ]
+    });
+
+    expect(layout.nodes.map((n) => n.id).sort()).toEqual(['a', 'b', 'c']);
+    expect(layout.height).toBe(2 * PADDING + 2 * NODE_HEIGHT + ROW_GAP);
+    const b = nodeById(layout, 'b');
+    const segments = edgeBetween(layout, 'a', 'c')
+      .path.split(/ (?=[CL] )|, /)
+      .filter((p) => p.startsWith('L '));
+    expect(segments).toHaveLength(1);
+    const [lx, ly] = segments[0].slice(2).split(' ').map(Number);
+    expect(lx).toBe(b.x + NODE_WIDTH);
+    const through_b = ly >= b.y && ly <= b.y + NODE_HEIGHT;
+    expect(through_b).toBe(false);
+  });
+
   test('arcs an edge within one column without flagging a cycle', () => {
     const layout = layoutGraph({
       nodes: [

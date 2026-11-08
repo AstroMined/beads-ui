@@ -31,6 +31,11 @@ const SELF_LOOP_START = 0.6;
 const SELF_LOOP_END = 0.4;
 /** Decimal places kept in SVG path coordinates. */
 const PATH_PRECISION = 2;
+/**
+ * Prefix of the waypoint ids a long forward edge gets in each column it
+ * crosses. It sorts before any bead id and never reaches the output.
+ */
+const WAYPOINT_PREFIX = '\u0000waypoint:';
 
 /**
  * @typedef {'blocks'|'inherited'|'child'|'related'} LayoutEdgeKind
@@ -129,7 +134,9 @@ function countCrossings(forward, col_of, pos_of) {
  * Columns map left to right in ascending `column` order, with unused column
  * numbers collapsed. Each column is centered vertically against the tallest
  * one. Forward edges are cubic beziers from the right edge of the source to
- * the left edge of the target. Back edges (target column before the source
+ * the left edge of the target; an edge that skips columns holds a row slot in
+ * each column it crosses, so it runs between nodes rather than behind one.
+ * Back edges (target column before the source
  * column) arc above or below the layout rows; edges within one column bulge
  * out to the right of it; self-loops curl over the top of their node.
  * Edges that name an unknown node are dropped, and a repeated node id keeps
@@ -167,19 +174,45 @@ export function layoutGraph(input) {
   for (const id of ids) {
     columns[Number(col_of.get(id))].push(id);
   }
-  const max_rows = Math.max(...columns.map((c) => c.length));
 
   const edges = input.edges
     .filter((e) => col_of.has(e.from) && col_of.has(e.to))
     .sort(cmpEdge);
-  const forward = edges.filter(
-    (e) => Number(col_of.get(e.to)) > Number(col_of.get(e.from))
-  );
+
+  /**
+   * Waypoint ids of each forward edge that skips columns, in column order.
+   *
+   * @type {Map<LayoutEdgeInput, string[]>}
+   */
+  const waypoints_of = new Map();
+  /** @type {Array<{ from: string, to: string }>} One hop per adjacent column pair. */
+  const forward = [];
+  edges.forEach((e, i) => {
+    const sc = Number(col_of.get(e.from));
+    const tc = Number(col_of.get(e.to));
+    if (tc <= sc) {
+      return;
+    }
+    /** @type {string[]} */
+    const waypoints = [];
+    for (let c = sc + 1; c < tc; c++) {
+      const id = `${WAYPOINT_PREFIX}${i}:${c}`;
+      col_of.set(id, c);
+      columns[c].push(id);
+      waypoints.push(id);
+    }
+    waypoints_of.set(e, waypoints);
+    const chain = [e.from, ...waypoints, e.to];
+    for (let k = 1; k < chain.length; k++) {
+      forward.push({ from: chain[k - 1], to: chain[k] });
+    }
+  });
+  const max_rows = Math.max(...columns.map((c) => c.length));
 
   /** @type {Map<string, string[]>} Neighbors in columns to the left. */
-  const left_of = new Map(ids.map((id) => [id, []]));
+  const left_of = new Map(columns.flat().map((id) => [id, []]));
   /** @type {Map<string, string[]>} Neighbors in columns to the right. */
-  const right_of = new Map(ids.map((id) => [id, []]));
+  const right_of = new Map(columns.flat().map((id) => [id, []]));
   for (const e of forward) {
     left_of.get(e.to)?.push(e.from);
     right_of.get(e.from)?.push(e.to);
@@ -244,22 +277,24 @@ export function layoutGraph(input) {
   const slot_height = NODE_HEIGHT + ROW_GAP;
   /** @type {LayoutNode[]} */
   const out_nodes = [];
-  /** @type {Map<string, LayoutNode>} */
+  /** @type {Map<string, LayoutNode>} Bead nodes and waypoints. */
   const node_of = new Map();
   order.forEach((col, c) => {
     const offset = ((max_rows - col.length) / 2) * slot_height;
     col.forEach((id, row) => {
       const node = {
         id,
-        column: Number(column_value.get(id)),
+        column: Number(column_value.get(id) ?? distinct[c]),
         row,
         x: PADDING + c * (NODE_WIDTH + COLUMN_GAP),
         y: PADDING + offset + row * slot_height,
         width: NODE_WIDTH,
         height: NODE_HEIGHT
       };
-      out_nodes.push(node);
       node_of.set(id, node);
+      if (!id.startsWith(WAYPOINT_PREFIX)) {
+        out_nodes.push(node);
+      }
     });
   });
 
@@ -284,7 +319,9 @@ export function layoutGraph(input) {
       to: e.to,
       kind: e.kind,
       cycle: e.cycle === true,
-      path: back ? backPath(s, t, sc === tc, height) : forwardPath(s, t)
+      path: back
+        ? backPath(s, t, sc === tc, height)
+        : forwardPath(s, t, waypointNodes(waypoints_of.get(e) ?? [], node_of))
     });
   }
 
@@ -292,21 +329,49 @@ export function layoutGraph(input) {
 }
 
 /**
+ * @param {string[]} ids
+ * @param {Map<string, LayoutNode>} node_of
+ * @returns {LayoutNode[]}
+ */
+function waypointNodes(ids, node_of) {
+  return ids.flatMap((id) => {
+    const node = node_of.get(id);
+    return node ? [node] : [];
+  });
+}
+
+/**
+ * A cubic from the right edge of the source to the left edge of the target.
+ * Through waypoints, the path runs level across each waypoint's slot and
+ * curves between columns.
+ *
  * @param {LayoutNode} s
  * @param {LayoutNode} t
+ * @param {LayoutNode[]} waypoints
  */
-function forwardPath(s, t) {
-  const sx = s.x + s.width;
-  const sy = s.y + s.height / 2;
-  const tx = t.x;
-  const ty = t.y + t.height / 2;
-  const dx = (tx - sx) / 2;
-  return cubic([
-    [sx, sy],
-    [sx + dx, sy],
-    [tx - dx, ty],
-    [tx, ty]
-  ]);
+function forwardPath(s, t, waypoints) {
+  /** @type {number[][]} */
+  const points = [[s.x + s.width, s.y + s.height / 2]];
+  for (const w of waypoints) {
+    const y = w.y + w.height / 2;
+    points.push([w.x, y], [w.x + w.width, y]);
+  }
+  points.push([t.x, t.y + t.height / 2]);
+  /** @type {string[]} */
+  const parts = [];
+  for (let k = 0; k + 1 < points.length; k += 2) {
+    const [sx, sy] = points[k];
+    const [tx, ty] = points[k + 1];
+    const dx = (tx - sx) / 2;
+    const segment = cubic([
+      [sx, sy],
+      [sx + dx, sy],
+      [tx - dx, ty],
+      [tx, ty]
+    ]);
+    parts.push(k === 0 ? segment : segment.replace(/^M /, 'L '));
+  }
+  return parts.join(' ');
 }
 
 /**

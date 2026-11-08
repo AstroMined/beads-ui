@@ -670,9 +670,29 @@ describe('collectGraphSlice', () => {
     const shallow = collectGraphSlice(index, 'x', { max_depth: 1 });
     expect(shallow.folded).toEqual([{ id: 'e', ids: ['c'] }]);
     const slice = collectGraphSlice(index, 'x', { max_depth: 2 });
-    expect(columns(slice)).toEqual({ c: 2, e: 1, x: 0, y: 1 });
+    expect(columns(slice)).toEqual({ c: 2, e: 3, x: 0, y: 1 });
     expect(slice.folded).toEqual([]);
     expect(slice.edges.some((e) => e.from === 'y' && e.to === 'c')).toBe(true);
+  });
+
+  test('layers by longest path so no ordering edge runs backwards', () => {
+    const index = buildDepIndex([
+      row('p'),
+      row('f', { parent: 'p' }),
+      row('m', { parent: 'p' }),
+      row('k', { parent: 'm', blocks: ['f'] }),
+      row('a'),
+      row('b', { blocks: ['a'] }),
+      row('g', { blocks: ['a', 'b'] })
+    ]);
+    const slice = collectGraphSlice(index, 'f', { max_depth: 3 });
+    expect(columns(slice)).toEqual({ f: 0, k: 1, m: 2, p: 3 });
+    const col = columns(slice);
+    for (const e of slice.edges) {
+      expect(col[e.to]).toBeGreaterThan(col[e.from]);
+    }
+    const up = collectGraphSlice(index, 'g');
+    expect(columns(up)).toEqual({ a: -2, b: -1, g: 0 });
   });
 
   test('marks inherited edges implied when their via is on the canvas', () => {
@@ -728,7 +748,7 @@ describe('collectGraphSlice', () => {
       max_depth: 1,
       expanded: ['ep']
     });
-    expect(columns(open)).toEqual({ ep: 1, f: 0, k1: 1, k2: 1 });
+    expect(columns(open)).toEqual({ ep: 2, f: 0, k1: 1, k2: 1 });
     expect(open.folded).toEqual([]);
     const implied = open.edges.filter((e) => e.implied).map((e) => e.to);
     expect(implied).toEqual(['k1', 'k2']);

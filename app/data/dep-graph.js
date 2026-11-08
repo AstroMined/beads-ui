@@ -1110,6 +1110,81 @@ function sliceDownLinks(index, id, include_closed) {
 }
 
 /**
+ * Re-layer one side of a slice by longest path, so every drawn ordering edge
+ * points away from the focus. Breadth-first levels alone put a bead reached
+ * by both a short and a long route in the short route's column, which draws
+ * its later edges backwards. Members of one cycle share a column; a group the
+ * focus does not reach keeps its breadth-first column.
+ *
+ * @param {Map<string, number>} column - Node id to column, updated in place.
+ * @param {SliceEdge[]} edges
+ * @param {Map<string, number>} cycle_of
+ * @param {string} focus
+ * @param {1 | -1} side - 1 for unlocks, -1 for prerequisites.
+ */
+function layerSide(column, edges, cycle_of, focus, side) {
+  /** @param {string} id */
+  const group = (id) =>
+    id === focus ? focus : `cycle:${cycle_of.get(id) ?? `id:${id}`}`;
+  /** @type {Map<string, string[]>} */
+  const members = new Map();
+  for (const [id, c] of column) {
+    if (id === focus || Math.sign(c) === side) {
+      const g = group(id);
+      members.set(g, [...(members.get(g) ?? []), id]);
+    }
+  }
+  /** @type {Map<string, Set<string>>} */
+  const succ = new Map();
+  /** @type {Map<string, number>} */
+  const indegree = new Map();
+  for (const g of members.keys()) {
+    succ.set(g, new Set());
+    indegree.set(g, 0);
+  }
+  for (const e of edges) {
+    if (e.kind === 'related') {
+      continue;
+    }
+    const near = group(side > 0 ? e.from : e.to);
+    const far = group(side > 0 ? e.to : e.from);
+    const out = succ.get(near);
+    if (near === far || !out || !succ.has(far) || out.has(far)) {
+      continue;
+    }
+    out.add(far);
+    indegree.set(far, Number(indegree.get(far)) + 1);
+  }
+  /** @type {Map<string, number>} */
+  const dist = new Map([[focus, 0]]);
+  const queue = Array.from(members.keys())
+    .filter((g) => indegree.get(g) === 0)
+    .sort(cmpStr);
+  while (queue.length > 0) {
+    const g = String(queue.shift());
+    const d = dist.get(g);
+    for (const h of Array.from(succ.get(g) ?? []).sort(cmpStr)) {
+      if (d !== undefined) {
+        dist.set(h, Math.max(dist.get(h) ?? 0, d + 1));
+      }
+      const left = Number(indegree.get(h)) - 1;
+      indegree.set(h, left);
+      if (left === 0) {
+        queue.push(h);
+      }
+    }
+  }
+  for (const [g, ids] of members) {
+    const d = dist.get(g);
+    if (g !== focus && d !== undefined) {
+      for (const id of ids) {
+        column.set(id, side * d);
+      }
+    }
+  }
+}
+
+/**
  * One slice at a fixed depth limit.
  *
  * @param {DepIndex} index
@@ -1234,13 +1309,6 @@ function sliceAtDepth(index, focus, depth, include_closed, expanded) {
   }
 
   const node_ids = Array.from(column.keys()).sort(cmpStr);
-  /** @type {SliceNode[]} */
-  const nodes = node_ids.map((id) => ({
-    id,
-    column: Number(column.get(id)),
-    state: nodeState(index, id),
-    focus: id === focus
-  }));
 
   /** @type {SliceEdge[]} */
   const edges = [];
@@ -1279,6 +1347,16 @@ function sliceAtDepth(index, focus, depth, include_closed, expanded) {
     (a, b) =>
       cmpStr(a.from, b.from) || cmpStr(a.to, b.to) || cmpStr(a.kind, b.kind)
   );
+
+  layerSide(column, edges, index.cycle_of, focus, -1);
+  layerSide(column, edges, index.cycle_of, focus, 1);
+  /** @type {SliceNode[]} */
+  const nodes = node_ids.map((id) => ({
+    id,
+    column: Number(column.get(id)),
+    state: nodeState(index, id),
+    focus: id === focus
+  }));
 
   const reached_depth = Math.max(...nodes.map((n) => Math.abs(n.column)));
   return {
