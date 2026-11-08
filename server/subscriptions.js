@@ -6,7 +6,7 @@
  *
  * Maintains per-subscription entries keyed by a stable string derived from
  * `{ type, params }`. Each entry stores:
- *  - `itemsById`: Map<string, { updated_at: number, closed_at: number|null }>
+ *  - `itemsById`: Map<string, { updated_at: number, closed_at: number|null, sig: string }>
  *  - `subscribers`: Set<WebSocket>
  *  - `lock`: Promise chain to serialize refresh/update operations per key
  *
@@ -22,7 +22,37 @@
  */
 
 /**
- * @typedef {{ updated_at: number, closed_at: number | null }} ItemMeta
+ * `sig` is a stable signature over the item's dependency edges, dependents,
+ * labels and parent, so a change to any of them is detected even when
+ * `updated_at` has not moved.
+ *
+ * @typedef {{ updated_at: number, closed_at: number | null, sig: string }} ItemMeta
+ */
+
+/**
+ * A dependency edge in either the list shape (`{ depends_on_id, type }`) or
+ * the `bd show` detail shape (an issue object with `id` and
+ * `dependency_type`). A bare id string is accepted as an untyped edge.
+ *
+ * @typedef {string | {
+ *   depends_on_id?: unknown,
+ *   issue_id?: unknown,
+ *   id?: unknown,
+ *   type?: unknown,
+ *   dependency_type?: unknown
+ * }} EdgeLike
+ */
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   updated_at: number,
+ *   closed_at?: number | null,
+ *   dependencies?: unknown,
+ *   dependents?: unknown,
+ *   labels?: unknown,
+ *   parent?: unknown
+ * }} IssueLike
  */
 
 /**
@@ -88,7 +118,11 @@ export function computeDelta(prev, next) {
       added.push(id);
       continue;
     }
-    if (p.updated_at !== meta.updated_at || p.closed_at !== meta.closed_at) {
+    if (
+      p.updated_at !== meta.updated_at ||
+      p.closed_at !== meta.closed_at ||
+      p.sig !== meta.sig
+    ) {
       updated.push(id);
     }
   }
@@ -101,9 +135,84 @@ export function computeDelta(prev, next) {
 }
 
 /**
+ * Encode one edge as `<id>:<type>`, or null when it carries no id. The list
+ * shape names the far end in `depends_on_id`; the detail shape uses `id`.
+ *
+ * @param {EdgeLike} edge
+ * @returns {string | null}
+ */
+function edgeKey(edge) {
+  if (typeof edge === 'string') {
+    return edge.length > 0 ? `${edge}:` : null;
+  }
+  if (!edge || typeof edge !== 'object') {
+    return null;
+  }
+  const target =
+    typeof edge.depends_on_id === 'string'
+      ? edge.depends_on_id
+      : typeof edge.id === 'string'
+        ? edge.id
+        : typeof edge.issue_id === 'string'
+          ? edge.issue_id
+          : '';
+  if (target.length === 0) {
+    return null;
+  }
+  const type =
+    typeof edge.type === 'string'
+      ? edge.type
+      : typeof edge.dependency_type === 'string'
+        ? edge.dependency_type
+        : '';
+  return `${target}:${type}`;
+}
+
+/**
+ * Sorted edge keys for an edge array; non-arrays yield an empty list.
+ *
+ * @param {unknown} edges
+ * @returns {string[]}
+ */
+function sortedEdgeKeys(edges) {
+  if (!Array.isArray(edges)) {
+    return [];
+  }
+  /** @type {string[]} */
+  const keys = [];
+  for (const edge of edges) {
+    const k = edgeKey(/** @type {EdgeLike} */ (edge));
+    if (k !== null) {
+      keys.push(k);
+    }
+  }
+  return keys.sort();
+}
+
+/**
+ * Compute the order-independent signature of an item's edges, dependents,
+ * labels and parent.
+ *
+ * @param {IssueLike} it
+ * @returns {string}
+ */
+export function itemSig(it) {
+  const labels = Array.isArray(it.labels)
+    ? it.labels.filter((l) => typeof l === 'string').sort()
+    : [];
+  const parent = typeof it.parent === 'string' ? it.parent : '';
+  return JSON.stringify([
+    sortedEdgeKeys(it.dependencies),
+    sortedEdgeKeys(it.dependents),
+    labels,
+    parent
+  ]);
+}
+
+/**
  * Normalize array of issue-like objects into an itemsById map.
  *
- * @param {Array<{ id: string, updated_at: number, closed_at?: number|null }>} items
+ * @param {Array<IssueLike>} items
  * @returns {Map<string, ItemMeta>}
  */
 export function toItemsMap(items) {
@@ -122,7 +231,7 @@ export function toItemsMap(items) {
       const n = Number(it.closed_at);
       closed_at = Number.isFinite(n) ? n : null;
     }
-    map.set(it.id, { updated_at, closed_at });
+    map.set(it.id, { updated_at, closed_at, sig: itemSig(it) });
   }
   return map;
 }
@@ -276,7 +385,7 @@ export class SubscriptionRegistry {
    * Convenience: update items from an array of objects with id/updated_at/closed_at.
    *
    * @param {string} key
-   * @param {Array<{ id: string, updated_at: number, closed_at?: number|null }>} items
+   * @param {Array<IssueLike>} items
    * @returns {{ added: string[], updated: string[], removed: string[] }}
    */
   applyItems(key, items) {

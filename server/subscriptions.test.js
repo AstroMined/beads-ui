@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   SubscriptionRegistry,
   computeDelta,
+  itemSig,
   keyOf,
   toItemsMap
 } from './subscriptions.js';
@@ -124,5 +125,125 @@ describe('subscriptions registry', () => {
     expect(d2.added).toEqual(['C']);
     expect(d2.updated).toEqual(['B']);
     expect(d2.removed).toEqual(['A']);
+  });
+  test('computeDelta reports an edge-only change with the same updated_at', () => {
+    const prev = toItemsMap([
+      {
+        id: 'A',
+        updated_at: 10,
+        dependencies: [{ depends_on_id: 'B', type: 'blocks' }]
+      }
+    ]);
+    const next = toItemsMap([
+      {
+        id: 'A',
+        updated_at: 10,
+        dependencies: [
+          { depends_on_id: 'B', type: 'blocks' },
+          { depends_on_id: 'C', type: 'blocks' }
+        ]
+      }
+    ]);
+    const d = computeDelta(prev, next);
+    expect(d.updated).toEqual(['A']);
+    expect(d.added).toEqual([]);
+    expect(d.removed).toEqual([]);
+  });
+
+  test('computeDelta reports a detail-shape edge type change', () => {
+    const prev = toItemsMap([
+      {
+        id: 'A',
+        updated_at: 10,
+        dependencies: [{ id: 'B', dependency_type: 'blocks' }]
+      }
+    ]);
+    const next = toItemsMap([
+      {
+        id: 'A',
+        updated_at: 10,
+        dependencies: [{ id: 'B', dependency_type: 'related' }]
+      }
+    ]);
+    expect(computeDelta(prev, next).updated).toEqual(['A']);
+  });
+
+  test('computeDelta reports a dependent-only change', () => {
+    const prev = toItemsMap([{ id: 'A', updated_at: 10, dependents: [] }]);
+    const next = toItemsMap([
+      {
+        id: 'A',
+        updated_at: 10,
+        dependents: [{ id: 'Z', dependency_type: 'blocks' }]
+      }
+    ]);
+    expect(computeDelta(prev, next).updated).toEqual(['A']);
+  });
+
+  test('computeDelta reports a label-only change', () => {
+    const prev = toItemsMap([{ id: 'A', updated_at: 10, labels: ['ui'] }]);
+    const next = toItemsMap([
+      { id: 'A', updated_at: 10, labels: ['ui', 'server'] }
+    ]);
+    expect(computeDelta(prev, next).updated).toEqual(['A']);
+  });
+
+  test('computeDelta reports a parent-only change', () => {
+    const prev = toItemsMap([{ id: 'A', updated_at: 10, parent: 'P-1' }]);
+    const next = toItemsMap([{ id: 'A', updated_at: 10, parent: 'P-2' }]);
+    expect(computeDelta(prev, next).updated).toEqual(['A']);
+  });
+
+  test('itemSig ignores edge and label order', () => {
+    const a = itemSig({
+      id: 'A',
+      updated_at: 1,
+      dependencies: [
+        { depends_on_id: 'C', type: 'blocks' },
+        { depends_on_id: 'B', type: 'parent-child' }
+      ],
+      dependents: [
+        { id: 'Y', dependency_type: 'blocks' },
+        { id: 'X', dependency_type: 'blocks' }
+      ],
+      labels: ['zeta', 'alpha']
+    });
+    const b = itemSig({
+      id: 'A',
+      updated_at: 1,
+      dependencies: [
+        { depends_on_id: 'B', type: 'parent-child' },
+        { depends_on_id: 'C', type: 'blocks' }
+      ],
+      dependents: [
+        { id: 'X', dependency_type: 'blocks' },
+        { id: 'Y', dependency_type: 'blocks' }
+      ],
+      labels: ['alpha', 'zeta']
+    });
+    expect(a).toBe(b);
+  });
+
+  test('itemSig matches across list and detail edge shapes', () => {
+    const list_sig = itemSig({
+      id: 'A',
+      updated_at: 1,
+      dependencies: [{ issue_id: 'A', depends_on_id: 'B', type: 'blocks' }]
+    });
+    const detail_sig = itemSig({
+      id: 'A',
+      updated_at: 1,
+      dependencies: [{ id: 'B', dependency_type: 'blocks' }]
+    });
+    expect(list_sig).toBe(detail_sig);
+  });
+
+  test('computeDelta keeps a row without edges stable', () => {
+    const prev = toItemsMap([{ id: 'A', updated_at: 10, closed_at: null }]);
+    const next = toItemsMap([{ id: 'A', updated_at: 10, closed_at: null }]);
+    const d = computeDelta(prev, next);
+    expect(d.updated).toEqual([]);
+    expect(d.added).toEqual([]);
+    expect(d.removed).toEqual([]);
   });
 });
