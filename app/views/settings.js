@@ -229,6 +229,8 @@ export function createSettingsView(mount_element, store, transport) {
   }
 
   // --- Subscription types and auto-suggest ---
+  // graph-issues is intentionally not a column source: it serves the open set
+  // plus closed referenced beads for the Graph tab and the board index.
   const SUBSCRIPTION_TYPES = [
     'all-issues',
     'epics',

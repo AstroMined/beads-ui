@@ -36,6 +36,32 @@ export interface DependencyRef {
   closed_at?: number | null;
 }
 
+/**
+ * One dependency edge of a `graph-issues` row: the row's bead depends on
+ * `depends_on_id` with dependency type `type` (for example `blocks` or
+ * `parent-child`). Edges are deduplicated per row.
+ */
+export interface GraphEdge {
+  depends_on_id: string;
+  type: string;
+}
+
+/**
+ * A `graph-issues` row. The list is the open set (every bead except closed
+ * and pinned ones) plus the beads outside it that open beads reference as a
+ * parent or a dependency, which carry their real status (usually `closed`).
+ */
+export interface GraphIssue extends IssueRef {
+  title?: string;
+  status?: string;
+  priority?: number;
+  issue_type?: string;
+  assignee?: string | null;
+  parent?: string | null;
+  labels?: string[];
+  dependencies: GraphEdge[];
+}
+
 export type SubscriptionType =
   | 'all-issues'
   | 'epics'
@@ -43,7 +69,9 @@ export type SubscriptionType =
   | 'ready-issues'
   | 'in-progress-issues'
   | 'closed-issues'
-  | 'issue-detail';
+  | 'issue-detail'
+  | 'status-issues'
+  | 'graph-issues';
 
 export interface SubscribeParamsBase {
   /** Client-chosen subscription id (unique per connection). */

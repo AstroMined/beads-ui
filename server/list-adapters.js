@@ -1,7 +1,85 @@
+/**
+ * @import { DepIssue } from '../app/data/dep-graph.js'
+ * @import { GraphEdge } from '../types/subscriptions.js'
+ */
+import { deriveBdBlocked, deriveBdReadyIds } from '../app/data/dep-graph.js';
+import { GRAPH_ISSUES_TYPE } from '../app/data/graph-subscription.js';
+import { shouldDeriveReady } from './bd-version.js';
 import { runBdJson } from './bd.js';
+import { readManifestFingerprint } from './dolt-manifest.js';
 import { debug } from './logging.js';
 
 const log = debug('list-adapters');
+
+/** Row cap for bd list commands whose result is bounded by a status. */
+export const BD_LIST_LIMIT = 1000;
+
+/** bd's `--limit` value for "no cap" (bd defaults to 50 rows). */
+export const BD_LIST_UNLIMITED = 0;
+
+/**
+ * Scalar fields `graph-issues` keeps from a bd row. `dependencies` is always
+ * added, reduced to deduplicated `{ depends_on_id, type }` edges.
+ */
+export const GRAPH_ISSUE_FIELDS = Object.freeze([
+  'id',
+  'title',
+  'status',
+  'priority',
+  'issue_type',
+  'assignee',
+  'parent',
+  'labels',
+  'created_at',
+  'updated_at',
+  'closed_at'
+]);
+
+/** Most ids one `bd show` call resolves for the closed-id resolver. */
+export const CLOSED_ID_BATCH_MAX = 100;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Server-side floor for `closed-issues`: the widest Closed column filter the
+ * board offers ('7' days in `app/views/board.js`). The client keeps its finer
+ * filter on top.
+ */
+const CLOSED_FLOOR_DAYS = 7;
+
+/** Status served by `in-progress-issues`, filtered from the open set. */
+const IN_PROGRESS_STATUS = 'in_progress';
+
+/** Prefix of cross-project refs, which bd never resolves to a bead. */
+const EXTERNAL_REF_PREFIX = 'external:';
+
+/** Status of a deleted bead that bd may still report. */
+const TOMBSTONE_STATUS = 'tombstone';
+
+/**
+ * The open set: every non-closed, non-pinned bead (see `rules.open_set` in
+ * `server/fixtures/bd-ready-parity.json`).
+ */
+const OPEN_SET_ARGS = Object.freeze([
+  'list',
+  '--json',
+  '--tree=false',
+  '--limit',
+  String(BD_LIST_UNLIMITED)
+]);
+
+/**
+ * Types served from the shared open set. `all-issues` runs the same command,
+ * so it shares the spawn too.
+ */
+const OPEN_SET_TYPES = new Set([
+  'all-issues',
+  GRAPH_ISSUES_TYPE,
+  'in-progress-issues'
+]);
+
+/** Types derived from the open set when the bd version allows it. */
+const DERIVED_TYPES = new Set(['ready-issues', 'blocked-issues']);
 
 /**
  * Extra attempts (after the first) for read-only list fetches. A transient
@@ -89,8 +167,23 @@ async function runBdJsonWithRetry(args, options) {
 }
 
 /**
+ * A bd JSON row. Ids are coerced to strings by `normalizeIssueList`.
+ *
+ * @typedef {Record<string, unknown>} BdRow
+ */
+
+/**
+ * A `graph-issues` row: the `GRAPH_ISSUE_FIELDS` a bd row carries plus its
+ * reduced dependency edges.
+ *
+ * @typedef {{ id: string, dependencies: GraphEdge[] } & Record<string, unknown>} GraphRow
+ */
+
+/**
  * Build concrete `bd` CLI args for a subscription type + params.
- * Always includes `--json` for parseable output.
+ * Always includes `--json` for parseable output. For `ready-issues` and
+ * `blocked-issues` these are the fallback commands, spawned only when the
+ * workspace's bd version does not allow deriving them from the open set.
  *
  * @param {{ type: string, params?: Record<string, string | number | boolean> }} spec
  * @returns {string[]}
@@ -98,8 +191,10 @@ async function runBdJsonWithRetry(args, options) {
 export function mapSubscriptionToBdArgs(spec) {
   const t = String(spec.type);
   switch (t) {
-    case 'all-issues': {
-      return ['list', '--json', '--tree=false'];
+    case 'all-issues':
+    case GRAPH_ISSUES_TYPE:
+    case 'in-progress-issues': {
+      return OPEN_SET_ARGS.slice();
     }
     case 'epics': {
       return ['epic', 'status', '--json'];
@@ -108,20 +203,20 @@ export function mapSubscriptionToBdArgs(spec) {
       return ['blocked', '--json'];
     }
     case 'ready-issues': {
-      return ['ready', '--limit', '1000', '--json'];
-    }
-    case 'in-progress-issues': {
-      return ['list', '--json', '--tree=false', '--status', 'in_progress'];
+      return ['ready', '--limit', String(BD_LIST_LIMIT), '--json'];
     }
     case 'closed-issues': {
+      const floor = new Date(Date.now() - CLOSED_FLOOR_DAYS * MS_PER_DAY);
       return [
         'list',
         '--json',
         '--tree=false',
         '--status',
         'closed',
+        '--closed-after',
+        floor.toISOString(),
         '--limit',
-        '1000'
+        String(BD_LIST_LIMIT)
       ];
     }
     case 'status-issues': {
@@ -136,7 +231,7 @@ export function mapSubscriptionToBdArgs(spec) {
         '--status',
         status,
         '--limit',
-        '1000'
+        String(BD_LIST_LIMIT)
       ];
     }
     case 'issue-detail': {
@@ -194,6 +289,89 @@ export function normalizeIssueList(value) {
 }
 
 /**
+ * Whether a bd row is a live bead: not tombstoned and not soft-deleted.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isLiveIssue(value) {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const row = /** @type {{ status?: unknown, deleted_at?: unknown }} */ (value);
+  if (row.status === TOMBSTONE_STATUS) {
+    return false;
+  }
+  return row.deleted_at === undefined || row.deleted_at === null;
+}
+
+/**
+ * Reduce dependency edges, in the list shape (`depends_on_id`, `type`) or the
+ * detail shape (`id`, `dependency_type`), to deduplicated `GraphEdge`s.
+ *
+ * @param {unknown} value
+ * @returns {GraphEdge[]}
+ */
+function reduceEdges(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  /** @type {Set<string>} */
+  const seen = new Set();
+  /** @type {GraphEdge[]} */
+  const out = [];
+  for (const edge of value) {
+    if (!edge || typeof edge !== 'object') {
+      continue;
+    }
+    const target =
+      typeof edge.depends_on_id === 'string' && edge.depends_on_id
+        ? edge.depends_on_id
+        : typeof edge.id === 'string'
+          ? edge.id
+          : '';
+    if (target.length === 0) {
+      continue;
+    }
+    const type =
+      typeof edge.type === 'string'
+        ? edge.type
+        : typeof edge.dependency_type === 'string'
+          ? edge.dependency_type
+          : '';
+    const key = `${target}\n${type}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({ depends_on_id: target, type });
+  }
+  return out;
+}
+
+/**
+ * Project a bd list or show row to the `graph-issues` shape: the
+ * `GRAPH_ISSUE_FIELDS` it carries plus deduplicated `{ depends_on_id, type }`
+ * dependencies.
+ *
+ * @param {BdRow} row
+ * @returns {GraphRow}
+ */
+export function projectGraphIssue(row) {
+  /** @type {GraphRow} */
+  const out = {
+    id: String(row.id ?? ''),
+    dependencies: reduceEdges(row.dependencies)
+  };
+  for (const field of GRAPH_ISSUE_FIELDS) {
+    if (field !== 'id' && field in row) {
+      out[field] = row[field];
+    }
+  }
+  return out;
+}
+
+/**
  * @typedef {Object} FetchListResultSuccess
  * @property {true} ok
  * @property {Array<{ id: string, updated_at: number, closed_at: number | null } & Record<string, unknown>>} items
@@ -206,7 +384,314 @@ export function normalizeIssueList(value) {
  */
 
 /**
+ * @typedef {{ ok: true, rows: BdRow[] } | FetchListResultFailure} OpenSetResult
+ */
+
+/**
+ * One open-set fetch per workspace. `fingerprint` is the Dolt manifest
+ * fingerprint read before the spawn.
+ *
+ * @typedef {{ fingerprint: string | null, pending: boolean, promise: Promise<OpenSetResult> }} OpenSetEntry
+ */
+
+/**
+ * Latest open-set fetch per workspace directory. An entry is reused while its
+ * fingerprint is unchanged and non-null; with a null fingerprint (no embedded
+ * Dolt manifest) it is shared only while in flight.
+ *
+ * @type {Map<string, OpenSetEntry>}
+ */
+const open_set_by_cwd = new Map();
+
+/**
+ * Closed-id resolver cache per workspace directory: a projected row for each
+ * resolved id outside the open set, or null when bd could not resolve it.
+ *
+ * @type {Map<string, Map<string, GraphRow | null>>}
+ */
+const outside_rows_by_cwd = new Map();
+
+/**
+ * @param {string | undefined} cwd
+ * @returns {string}
+ */
+function workspaceDir(cwd) {
+  return cwd || process.cwd();
+}
+
+/**
+ * Coerce bd JSON output to a list of object rows. `bd show` may return a
+ * single object.
+ *
+ * @param {unknown} value
+ * @returns {BdRow[]}
+ */
+function toRows(value) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.filter((it) => it !== null && typeof it === 'object');
+}
+
+/**
+ * The structured failure for a failed bd run, or null when it succeeded.
+ *
+ * @param {{ code: number, stdoutJson?: unknown, stderr?: string } | undefined} res
+ * @returns {FetchListResultFailure | null}
+ */
+function bdFailure(res) {
+  if (res && res.code === 0 && 'stdoutJson' in res) {
+    return null;
+  }
+  return {
+    ok: false,
+    error: {
+      code: 'bd_error',
+      message: String(res?.stderr || 'bd failed'),
+      details: { exit_code: res?.code ?? -1 }
+    }
+  };
+}
+
+/**
+ * The structured failure for a bd invocation that threw.
+ *
+ * @param {unknown} err
+ * @returns {FetchListResultFailure}
+ */
+function invocationFailure(err) {
+  const message =
+    err instanceof Error && err.message ? err.message : 'bd invocation failed';
+  return { ok: false, error: { code: 'bd_error', message } };
+}
+
+/**
+ * Spawn the open-set list. Never rejects.
+ *
+ * @param {string | undefined} cwd
+ * @returns {Promise<OpenSetResult>}
+ */
+async function runOpenSet(cwd) {
+  const args = OPEN_SET_ARGS.slice();
+  try {
+    const res = await runBdJsonWithRetry(args, { cwd });
+    const failure = bdFailure(res);
+    if (failure) {
+      log(
+        'bd open set failed (args=%o) code=%s stderr=%s',
+        args,
+        res?.code,
+        res?.stderr || ''
+      );
+      return failure;
+    }
+    return { ok: true, rows: toRows(res.stdoutJson).filter(isLiveIssue) };
+  } catch (err) {
+    log('bd open set invocation failed (args=%o): %o', args, err);
+    return invocationFailure(err);
+  }
+}
+
+/**
+ * The open set of a workspace, shared by every open-set type in a refresh
+ * pass: concurrent callers share one in-flight spawn, and an unchanged
+ * non-null manifest fingerprint reuses the last successful rows. Failures are
+ * never reused.
+ *
+ * @param {string | undefined} cwd
+ * @returns {Promise<OpenSetResult>}
+ */
+function loadOpenSet(cwd) {
+  const key = workspaceDir(cwd);
+  const fingerprint = readManifestFingerprint(key);
+  const entry = open_set_by_cwd.get(key);
+  if (
+    entry &&
+    entry.fingerprint === fingerprint &&
+    (entry.pending || fingerprint !== null)
+  ) {
+    return entry.promise;
+  }
+  const promise = runOpenSet(cwd);
+  /** @type {OpenSetEntry} */
+  const created = { fingerprint, pending: true, promise };
+  open_set_by_cwd.set(key, created);
+  promise.then((result) => {
+    created.pending = false;
+    if (!result.ok && open_set_by_cwd.get(key) === created) {
+      open_set_by_cwd.delete(key);
+    }
+  });
+  return promise;
+}
+
+/**
+ * Ids that open-set rows reference (parents and dependency targets of any
+ * type) but that are not in the open set. External refs are skipped.
+ *
+ * @param {GraphRow[]} rows
+ * @param {Set<string>} open_ids
+ * @returns {string[]} Sorted ids.
+ */
+function referencedOutsideIds(rows, open_ids) {
+  /** @type {Set<string>} */
+  const ids = new Set();
+  /** @param {unknown} id */
+  const add = (id) => {
+    if (
+      typeof id === 'string' &&
+      id.length > 0 &&
+      !open_ids.has(id) &&
+      !id.startsWith(EXTERNAL_REF_PREFIX)
+    ) {
+      ids.add(id);
+    }
+  };
+  for (const row of rows) {
+    add(row.parent);
+    for (const edge of row.dependencies) {
+      add(edge.depends_on_id);
+    }
+  }
+  return Array.from(ids).sort();
+}
+
+/**
+ * Resolve one batch of ids with `bd show`. A missing id is cached as null; a
+ * batch whose ids are all missing fails in bd, so after the retries the whole
+ * batch is cached as null too.
+ *
+ * @param {Map<string, GraphRow | null>} cache
+ * @param {string[]} ids
+ * @param {string | undefined} cwd
+ */
+async function resolveOutsideBatch(cache, ids, cwd) {
+  const args = ['show', ...ids, '--json'];
+  const res = await runBdJsonWithRetry(args, { cwd });
+  if (bdFailure(res)) {
+    log('bd show failed for %d ids (code=%s)', ids.length, res?.code);
+  } else {
+    const wanted = new Set(ids);
+    for (const row of toRows(res.stdoutJson)) {
+      const id = String(row.id ?? '');
+      if (wanted.has(id) && isLiveIssue(row)) {
+        cache.set(id, projectGraphIssue(row));
+      }
+    }
+  }
+  for (const id of ids) {
+    if (!cache.has(id)) {
+      cache.set(id, null);
+    }
+  }
+}
+
+/**
+ * Rows for the ids open-set rows reference outside the open set, such as a
+ * closed parent or a closed blocker, each with its real status. Ids are
+ * resolved once through batched `bd show` calls and cached; an id is dropped
+ * from the cache when it reappears in the open set.
+ *
+ * @param {GraphRow[]} open_rows - Projected open set.
+ * @param {string | undefined} cwd
+ * @returns {Promise<GraphRow[]>}
+ */
+async function resolveOutsideRows(open_rows, cwd) {
+  const key = workspaceDir(cwd);
+  let cache = outside_rows_by_cwd.get(key);
+  if (!cache) {
+    cache = new Map();
+    outside_rows_by_cwd.set(key, cache);
+  }
+  const open_ids = new Set(open_rows.map((row) => row.id));
+  for (const id of open_ids) {
+    cache.delete(id);
+  }
+  const referenced = referencedOutsideIds(open_rows, open_ids);
+  const missing = referenced.filter((id) => !cache.has(id));
+  for (let i = 0; i < missing.length; i += CLOSED_ID_BATCH_MAX) {
+    await resolveOutsideBatch(
+      cache,
+      missing.slice(i, i + CLOSED_ID_BATCH_MAX),
+      cwd
+    );
+  }
+  /** @type {GraphRow[]} */
+  const out = [];
+  for (const id of referenced) {
+    const row = cache.get(id);
+    if (row) {
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/**
+ * Serve an open-set type: `graph-issues` (projected rows plus resolved rows
+ * outside the open set), `in-progress-issues` (a status filter, which
+ * matches bd exactly) or `all-issues` (the rows unchanged).
+ *
+ * @param {string} type
+ * @param {string | undefined} cwd
+ * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
+ */
+async function fetchFromOpenSet(type, cwd) {
+  const open = await loadOpenSet(cwd);
+  if (!open.ok) {
+    return open;
+  }
+  if (type === GRAPH_ISSUES_TYPE) {
+    const projected = open.rows.map(projectGraphIssue);
+    const outside = await resolveOutsideRows(projected, cwd);
+    return { ok: true, items: normalizeIssueList([...projected, ...outside]) };
+  }
+  if (type === 'in-progress-issues') {
+    const rows = open.rows.filter((row) => row.status === IN_PROGRESS_STATUS);
+    return { ok: true, items: normalizeIssueList(rows) };
+  }
+  return { ok: true, items: normalizeIssueList(open.rows) };
+}
+
+/**
+ * Derive `ready-issues` or `blocked-issues` from the open set with the bd
+ * 0.63.3 rules in `app/data/dep-graph.js`. Rows keep bd's full list fields;
+ * ready rows keep the open-set order (the board sorts them), and blocked rows
+ * are sorted by id and carry `blocked_by` and `blocked_by_count` like
+ * `bd blocked --json`.
+ *
+ * @param {string} type
+ * @param {string | undefined} cwd
+ * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
+ */
+async function fetchDerived(type, cwd) {
+  const open = await loadOpenSet(cwd);
+  if (!open.ok) {
+    return open;
+  }
+  // bd list rows carry the DepIssue fields; extra fields are ignored.
+  const issues = /** @type {DepIssue[]} */ (open.rows);
+  if (type === 'ready-issues') {
+    const ready = new Set(deriveBdReadyIds(issues, Date.now()));
+    const rows = open.rows.filter((row) => ready.has(String(row.id ?? '')));
+    return { ok: true, items: normalizeIssueList(rows) };
+  }
+  /** @type {Map<string, BdRow>} */
+  const by_id = new Map();
+  for (const row of open.rows) {
+    by_id.set(String(row.id ?? ''), row);
+  }
+  const rows = deriveBdBlocked(issues).map((blocked) => ({
+    ...by_id.get(blocked.id),
+    id: blocked.id,
+    blocked_by: blocked.blocked_by,
+    blocked_by_count: blocked.blocked_by.length
+  }));
+  return { ok: true, items: normalizeIssueList(rows) };
+}
+
+/**
  * Execute the mapped `bd` command for a subscription spec and return normalized items.
+ * Open-set types share one `bd list` spawn per refresh pass; `ready-issues`
+ * and `blocked-issues` are derived from it when the bd version allows.
  * Errors do not throw; they are surfaced as a structured object.
  *
  * @param {{ type: string, params?: Record<string, string | number | boolean> }} spec
@@ -214,6 +699,7 @@ export function normalizeIssueList(value) {
  * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
  */
 export async function fetchListForSubscription(spec, options = {}) {
+  const type = String(spec.type);
   /** @type {string[]} */
   let args;
   try {
@@ -226,8 +712,18 @@ export async function fetchListForSubscription(spec, options = {}) {
   }
 
   try {
+    if (OPEN_SET_TYPES.has(type)) {
+      return await fetchFromOpenSet(type, options.cwd);
+    }
+    if (
+      DERIVED_TYPES.has(type) &&
+      (await shouldDeriveReady(workspaceDir(options.cwd)))
+    ) {
+      return await fetchDerived(type, options.cwd);
+    }
     const res = await runBdJsonWithRetry(args, { cwd: options.cwd });
-    if (!res || res.code !== 0 || !('stdoutJson' in res)) {
+    const failure = bdFailure(res);
+    if (failure) {
       log(
         'bd failed for %o (args=%o) code=%s stderr=%s',
         spec,
@@ -235,26 +731,14 @@ export async function fetchListForSubscription(spec, options = {}) {
         res?.code,
         res?.stderr || ''
       );
-      return {
-        ok: false,
-        error: {
-          code: 'bd_error',
-          message: String(res?.stderr || 'bd failed'),
-          details: { exit_code: res?.code ?? -1 }
-        }
-      };
+      return failure;
     }
-    // bd show may return a single object; normalize to an array first
-    let raw = Array.isArray(res.stdoutJson)
-      ? res.stdoutJson
-      : res.stdoutJson && typeof res.stdoutJson === 'object'
-        ? [res.stdoutJson]
-        : [];
+    let raw = toRows(res.stdoutJson);
 
     // Special-case mapping for `epics`: current bd output nests the epic under
     // an `epic` key and exposes counters at the top level. Flatten so that
     // each entry has a top-level `id` and core fields expected by the registry.
-    if (String(spec.type) === 'epics') {
+    if (type === 'epics') {
       raw = raw.map((it) => {
         if (it && typeof it === 'object' && 'epic' in it) {
           const e = /** @type {any} */ (it).epic || {};
@@ -278,37 +762,14 @@ export async function fetchListForSubscription(spec, options = {}) {
         }
         return it;
       });
-      raw = raw.filter((it) => {
-        if (!it || typeof it !== 'object') {
-          return false;
-        }
-        const status =
-          typeof (/** @type {any} */ (it).status) === 'string'
-            ? /** @type {any} */ (it).status
-            : '';
-        if (status === 'tombstone') {
-          return false;
-        }
-        const deleted_at = /** @type {any} */ (it).deleted_at;
-        if (deleted_at !== undefined && deleted_at !== null) {
-          return false;
-        }
-        return true;
-      });
+      raw = raw.filter(isLiveIssue);
     }
 
     const items = normalizeIssueList(raw);
     return { ok: true, items };
   } catch (err) {
     log('bd invocation failed for %o (args=%o): %o', spec, args, err);
-    return {
-      ok: false,
-      error: {
-        code: 'bd_error',
-        message:
-          (err && /** @type {any} */ (err).message) || 'bd invocation failed'
-      }
-    };
+    return invocationFailure(err);
   }
 }
 

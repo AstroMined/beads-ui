@@ -3,6 +3,7 @@
  *
  * Provides schema checks for subscription specs and selected mutations.
  */
+import { GRAPH_ISSUES_TYPE } from '../app/data/graph-subscription.js';
 
 /**
  * Known subscription types supported by the server.
@@ -17,7 +18,9 @@ const SUBSCRIPTION_TYPES = new Set([
   'in-progress-issues',
   'closed-issues',
   'issue-detail',
-  'status-issues'
+  'status-issues',
+  // Open set plus referenced beads outside it; takes no params.
+  GRAPH_ISSUES_TYPE
 ]);
 
 /**

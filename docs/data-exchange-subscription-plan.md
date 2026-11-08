@@ -1,4 +1,4 @@
-# Data Exchange Model — Subscription‑Based Updates (Full‑Issue)
+# Data Exchange Model: Subscription‑Based Updates (Full‑Issue)
 
 ```
 Date: 2025-10-25
@@ -28,6 +28,10 @@ Owner: agent
 - `ready-issues`
 - `in-progress-issues`
 - `closed-issues` (special filtering noted below)
+- `status-issues` (requires `params.status`)
+- `graph-issues` (no params): the open set plus the beads outside it that open
+  beads reference, for the Graph tab and the Board's dependency index. Not a
+  board column source.
 
 ## Server Architecture
 
@@ -44,20 +48,35 @@ Owner: agent
 
 ### Mapping to `bd` Commands
 
-- `all-issues` → `bd list` (default/open)
-- `epics` → `bd list --type epic` (or equivalent)
-- `detail:{id}` → `bd show <id> --json` (use `dependents` from the epic detail
-  for children)
-- `blocked-issues` → `bd list --blocked`
-- `ready-issues` → `bd ready --limit 1000`
-- `in-progress-issues` → `bd list --status in_progress`
-- `closed-issues` → `bd list --status closed` (then filter first; see Special
-  Cases)
+The open set is `bd list --json --tree=false --limit 0`: every bead except
+closed and pinned ones. One spawn serves every open-set type in a refresh pass:
+concurrent fetches share it, and an unchanged Dolt manifest fingerprint reuses
+the last rows.
+
+| Type                 | Source                                                                                                                       |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `all-issues`         | The open set, unchanged                                                                                                      |
+| `graph-issues`       | The open set projected, plus referenced beads outside it (see Notes)                                                         |
+| `in-progress-issues` | The open set filtered to status `in_progress`                                                                                |
+| `ready-issues`       | Derived from the open set when `bd --version` is 0.63.3, else `bd ready --limit 1000 --json`                                 |
+| `blocked-issues`     | Derived from the open set (with `blocked_by` and `blocked_by_count`) when `bd --version` is 0.63.3, else `bd blocked --json` |
+| `closed-issues`      | `bd list --status closed --closed-after <now - 7 days> --limit 1000` (then filter first; see Special Cases)                  |
+| `status-issues`      | `bd list --status <params.status> --limit 1000`                                                                              |
+| `epics`              | `bd epic status --json`                                                                                                      |
+| `issue-detail`       | `bd show <id> --json` (use `dependents` from the epic detail for children)                                                   |
 
 Notes:
 
 - Exact flags depend on `bd`; create adapters that encapsulate CLI details and
   normalize results.
+- `graph-issues` rows keep `GRAPH_ISSUE_FIELDS` (`server/list-adapters.js`) and
+  dependencies reduced to deduplicated `{ depends_on_id, type }`. Parents and
+  dependency targets outside the open set (closed or pinned beads) are resolved
+  by batched `bd show <ids...> --json`, keep their real status and are cached by
+  id until they reappear in the open set.
+- Derived Ready and Blocked follow the rules captured from bd 0.63.3 in
+  `server/fixtures/bd-ready-parity.json`. Any other bd version spawns `bd ready`
+  and `bd blocked` and logs the mismatch once.
 
 ### Refresh Algorithm (per run)
 

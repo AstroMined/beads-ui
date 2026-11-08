@@ -1,20 +1,95 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { GRAPH_ISSUES_TYPE } from '../app/data/graph-subscription.js';
+import { shouldDeriveReady } from './bd-version.js';
 import { runBdJson } from './bd.js';
+import { readManifestFingerprint } from './dolt-manifest.js';
 import {
+  BD_LIST_LIMIT,
+  BD_LIST_UNLIMITED,
+  CLOSED_ID_BATCH_MAX,
+  GRAPH_ISSUE_FIELDS,
   fetchListForSubscription,
-  mapSubscriptionToBdArgs
+  isLiveIssue,
+  mapSubscriptionToBdArgs,
+  projectGraphIssue
 } from './list-adapters.js';
 
 vi.mock('./bd.js', () => ({ runBdJson: vi.fn() }));
+vi.mock('./bd-version.js', () => ({ shouldDeriveReady: vi.fn() }));
+vi.mock('./dolt-manifest.js', () => ({ readManifestFingerprint: vi.fn() }));
+
+const runBdJsonMock = /** @type {import('vitest').Mock} */ (runBdJson);
+const deriveMock = /** @type {import('vitest').Mock} */ (shouldDeriveReady);
+const fingerprintMock = /** @type {import('vitest').Mock} */ (
+  readManifestFingerprint
+);
+
+/** The shared open-set command. */
+const OPEN_SET_ARGS = [
+  'list',
+  '--json',
+  '--tree=false',
+  '--limit',
+  String(BD_LIST_UNLIMITED)
+];
+
+/** Fixed clock for the `closed-issues` floor. */
+const NOW_ISO = '2026-11-08T12:00:00.000Z';
+const SEVEN_DAYS_BEFORE_NOW_ISO = '2026-11-01T12:00:00.000Z';
+
+/**
+ * Number of bd JSON spawns whose subcommand is `name`.
+ *
+ * @param {string} name
+ */
+function spawnCount(name) {
+  return runBdJsonMock.mock.calls.filter((call) => call[0][0] === name).length;
+}
+
+/**
+ * Answer `bd list` with `open_rows` and `bd show` with the requested ids
+ * found in `outside_rows`.
+ *
+ * @param {Array<Record<string, unknown>>} open_rows
+ * @param {Array<{ id: string } & Record<string, unknown>>} [outside_rows]
+ */
+function answerBd(open_rows, outside_rows = []) {
+  runBdJsonMock.mockImplementation(async (/** @type {string[]} */ args) => {
+    if (args[0] === 'list') {
+      return { code: 0, stdoutJson: open_rows };
+    }
+    if (args[0] === 'show') {
+      return {
+        code: 0,
+        stdoutJson: outside_rows.filter((row) => args.includes(row.id))
+      };
+    }
+    return { code: 1, stderr: 'unexpected' };
+  });
+}
 
 describe('list adapters for subscription types', () => {
   beforeEach(() => {
-    /** @type {import('vitest').Mock} */ (runBdJson).mockReset();
+    runBdJsonMock.mockReset();
+    deriveMock.mockReset();
+    fingerprintMock.mockReset();
+    deriveMock.mockResolvedValue(false);
+    fingerprintMock.mockReturnValue(null);
   });
 
-  test('mapSubscriptionToBdArgs returns args for all-issues', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  test('mapSubscriptionToBdArgs returns the open set for all-issues', () => {
     const args = mapSubscriptionToBdArgs({ type: 'all-issues' });
-    expect(args).toEqual(['list', '--json', '--tree=false']);
+    expect(args).toEqual(OPEN_SET_ARGS);
+  });
+
+  test('mapSubscriptionToBdArgs returns the open set for graph-issues', () => {
+    const args = mapSubscriptionToBdArgs({ type: GRAPH_ISSUES_TYPE });
+    expect(args).toEqual(OPEN_SET_ARGS);
   });
 
   test('mapSubscriptionToBdArgs returns args for epics', () => {
@@ -30,21 +105,17 @@ describe('list adapters for subscription types', () => {
 
   test('mapSubscriptionToBdArgs returns args for ready-issues', () => {
     const args = mapSubscriptionToBdArgs({ type: 'ready-issues' });
-    expect(args).toEqual(['ready', '--limit', '1000', '--json']);
+    expect(args).toEqual(['ready', '--limit', String(BD_LIST_LIMIT), '--json']);
   });
 
-  test('mapSubscriptionToBdArgs returns args for in-progress-issues', () => {
+  test('mapSubscriptionToBdArgs returns the open set for in-progress-issues', () => {
     const args = mapSubscriptionToBdArgs({ type: 'in-progress-issues' });
-    expect(args).toEqual([
-      'list',
-      '--json',
-      '--tree=false',
-      '--status',
-      'in_progress'
-    ]);
+    expect(args).toEqual(OPEN_SET_ARGS);
   });
 
-  test('mapSubscriptionToBdArgs returns args for closed-issues', () => {
+  test('mapSubscriptionToBdArgs floors closed-issues at seven days', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_ISO));
     const args = mapSubscriptionToBdArgs({ type: 'closed-issues' });
     expect(args).toEqual([
       'list',
@@ -52,8 +123,10 @@ describe('list adapters for subscription types', () => {
       '--tree=false',
       '--status',
       'closed',
+      '--closed-after',
+      SEVEN_DAYS_BEFORE_NOW_ISO,
       '--limit',
-      '1000'
+      String(BD_LIST_LIMIT)
     ]);
   });
 
@@ -69,7 +142,7 @@ describe('list adapters for subscription types', () => {
       '--status',
       'in_review',
       '--limit',
-      '1000'
+      String(BD_LIST_LIMIT)
     ]);
   });
 
@@ -245,5 +318,322 @@ describe('list adapters for subscription types', () => {
       expect(res.error.code).toBe('bad_request');
       expect(res.error.message).toMatch(/Unknown subscription type/);
     }
+  });
+});
+
+describe('open set sharing', () => {
+  beforeEach(() => {
+    runBdJsonMock.mockReset();
+    deriveMock.mockReset();
+    fingerprintMock.mockReset();
+    deriveMock.mockResolvedValue(false);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const OPEN_ROWS = [
+    { id: 'S-1', status: 'open', title: 'One' },
+    { id: 'S-2', status: 'in_progress', title: 'Two' },
+    { id: 'S-3', status: 'in_review', title: 'Three' }
+  ];
+
+  test('in-progress-issues filters the open set by status', async () => {
+    fingerprintMock.mockReturnValue(null);
+    answerBd(OPEN_ROWS);
+
+    const res = await fetchListForSubscription(
+      { type: 'in-progress-issues' },
+      { cwd: '/ws/in-progress' }
+    );
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.items.map((it) => it.id)).toEqual(['S-2']);
+    }
+    expect(runBdJsonMock).toHaveBeenCalledWith(OPEN_SET_ARGS, {
+      cwd: '/ws/in-progress'
+    });
+  });
+
+  test('an unchanged fingerprint reuses the rows; a new one refetches', async () => {
+    fingerprintMock.mockReturnValue('fp-1');
+    answerBd(OPEN_ROWS);
+    const cwd = '/ws/fingerprint';
+
+    await fetchListForSubscription({ type: 'all-issues' }, { cwd });
+    await fetchListForSubscription({ type: 'in-progress-issues' }, { cwd });
+    expect(spawnCount('list')).toBe(1);
+
+    fingerprintMock.mockReturnValue('fp-2');
+    await fetchListForSubscription({ type: 'all-issues' }, { cwd });
+    expect(spawnCount('list')).toBe(2);
+  });
+
+  test('a null fingerprint shares only an in-flight fetch', async () => {
+    fingerprintMock.mockReturnValue(null);
+    answerBd(OPEN_ROWS);
+    const cwd = '/ws/no-manifest';
+
+    await Promise.all([
+      fetchListForSubscription({ type: 'all-issues' }, { cwd }),
+      fetchListForSubscription({ type: 'in-progress-issues' }, { cwd })
+    ]);
+    expect(spawnCount('list')).toBe(1);
+
+    await fetchListForSubscription({ type: 'all-issues' }, { cwd });
+    expect(spawnCount('list')).toBe(2);
+  });
+
+  test('a failed open set is not reused', async () => {
+    vi.stubEnv('BDUI_BD_LIST_RETRIES', '0');
+    fingerprintMock.mockReturnValue('fp-1');
+    const cwd = '/ws/failure';
+    runBdJsonMock
+      .mockResolvedValueOnce({ code: 1, stderr: 'locked' })
+      .mockResolvedValueOnce({ code: 0, stdoutJson: OPEN_ROWS });
+
+    const first = await fetchListForSubscription(
+      { type: 'all-issues' },
+      { cwd }
+    );
+    const second = await fetchListForSubscription(
+      { type: 'all-issues' },
+      { cwd }
+    );
+
+    expect(first.ok).toBe(false);
+    expect(second.ok).toBe(true);
+    expect(spawnCount('list')).toBe(2);
+  });
+
+  test('tombstoned and deleted rows are dropped from the open set', async () => {
+    fingerprintMock.mockReturnValue(null);
+    answerBd([
+      ...OPEN_ROWS,
+      { id: 'S-4', status: 'tombstone' },
+      { id: 'S-5', status: 'open', deleted_at: '2026-01-01T00:00:00Z' }
+    ]);
+
+    const res = await fetchListForSubscription(
+      { type: 'all-issues' },
+      { cwd: '/ws/tombstone' }
+    );
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.items.map((it) => it.id)).toEqual(['S-1', 'S-2', 'S-3']);
+    }
+  });
+
+  test('derived blocked rows keep the list fields and add blocked_by', async () => {
+    fingerprintMock.mockReturnValue('fp-1');
+    deriveMock.mockResolvedValue(true);
+    answerBd([
+      { id: 'B-1', status: 'open', title: 'Gate' },
+      {
+        id: 'B-2',
+        status: 'open',
+        title: 'Waits',
+        dependencies: [{ depends_on_id: 'B-1', type: 'blocks' }]
+      }
+    ]);
+    const cwd = '/ws/derived-fields';
+
+    const blocked = await fetchListForSubscription(
+      { type: 'blocked-issues' },
+      { cwd }
+    );
+    const ready = await fetchListForSubscription(
+      { type: 'ready-issues' },
+      { cwd }
+    );
+
+    expect(blocked.ok && blocked.items).toEqual([
+      expect.objectContaining({
+        id: 'B-2',
+        title: 'Waits',
+        blocked_by: ['B-1'],
+        blocked_by_count: 1
+      })
+    ]);
+    expect(ready.ok && ready.items.map((it) => it.id)).toEqual(['B-1']);
+    expect(spawnCount('list')).toBe(1);
+    expect(deriveMock).toHaveBeenCalledWith(cwd);
+  });
+});
+
+describe('graph-issues', () => {
+  beforeEach(() => {
+    runBdJsonMock.mockReset();
+    fingerprintMock.mockReset();
+    fingerprintMock.mockReturnValue(null);
+  });
+
+  test('projectGraphIssue keeps the graph fields and reduces edges', () => {
+    const row = projectGraphIssue({
+      id: 'G-1',
+      title: 'Node',
+      status: 'open',
+      priority: 1,
+      issue_type: 'task',
+      assignee: 'ryan',
+      parent: 'G-0',
+      labels: ['ui'],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+      description: 'dropped',
+      dependency_count: 3,
+      dependencies: [
+        { depends_on_id: 'G-0', type: 'parent-child' },
+        { depends_on_id: 'G-2', type: 'blocks' },
+        { depends_on_id: 'G-2', type: 'blocks' },
+        { id: 'G-3', dependency_type: 'related', title: 'detail shape' },
+        { type: 'blocks' }
+      ]
+    });
+
+    expect(row).toEqual({
+      id: 'G-1',
+      title: 'Node',
+      status: 'open',
+      priority: 1,
+      issue_type: 'task',
+      assignee: 'ryan',
+      parent: 'G-0',
+      labels: ['ui'],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+      dependencies: [
+        { depends_on_id: 'G-0', type: 'parent-child' },
+        { depends_on_id: 'G-2', type: 'blocks' },
+        { depends_on_id: 'G-3', type: 'related' }
+      ]
+    });
+    for (const key of Object.keys(row)) {
+      expect([...GRAPH_ISSUE_FIELDS, 'dependencies']).toContain(key);
+    }
+  });
+
+  test('adds referenced rows outside the open set with their real status', async () => {
+    answerBd(
+      [
+        {
+          id: 'G-1',
+          status: 'open',
+          parent: 'G-EP',
+          dependencies: [
+            { depends_on_id: 'G-EP', type: 'parent-child' },
+            { depends_on_id: 'G-DONE', type: 'blocks' },
+            { depends_on_id: 'external:proj:cap', type: 'blocks' }
+          ]
+        }
+      ],
+      [
+        { id: 'G-EP', status: 'closed', closed_at: '2026-01-03T00:00:00Z' },
+        { id: 'G-DONE', status: 'closed', description: 'dropped' }
+      ]
+    );
+
+    const res = await fetchListForSubscription(
+      { type: GRAPH_ISSUES_TYPE },
+      { cwd: '/ws/graph-outside' }
+    );
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.items.map((it) => [it.id, it.status])).toEqual([
+        ['G-1', 'open'],
+        ['G-DONE', 'closed'],
+        ['G-EP', 'closed']
+      ]);
+      expect(res.items[2].closed_at).toBe(Date.parse('2026-01-03T00:00:00Z'));
+      expect(res.items[1]).not.toHaveProperty('description');
+    }
+    expect(runBdJsonMock).toHaveBeenCalledWith(
+      ['show', 'G-DONE', 'G-EP', '--json'],
+      { cwd: '/ws/graph-outside' }
+    );
+  });
+
+  test('caches resolved and missing ids until they reappear in the open set', async () => {
+    const cwd = '/ws/graph-cache';
+    const child = {
+      id: 'C-1',
+      status: 'open',
+      dependencies: [
+        { depends_on_id: 'C-DONE', type: 'blocks' },
+        { depends_on_id: 'C-GONE', type: 'blocks' }
+      ]
+    };
+    answerBd([child], [{ id: 'C-DONE', status: 'closed' }]);
+
+    await fetchListForSubscription({ type: GRAPH_ISSUES_TYPE }, { cwd });
+    await fetchListForSubscription({ type: GRAPH_ISSUES_TYPE }, { cwd });
+    expect(spawnCount('show')).toBe(1);
+
+    // C-DONE is reopened: it is served from the open set, once.
+    answerBd([child, { id: 'C-DONE', status: 'open' }]);
+    const reopened = await fetchListForSubscription(
+      { type: GRAPH_ISSUES_TYPE },
+      { cwd }
+    );
+    expect(reopened.ok && reopened.items.map((it) => it.id)).toEqual([
+      'C-1',
+      'C-DONE'
+    ]);
+    expect(spawnCount('show')).toBe(1);
+
+    // Closed again: the dropped id is resolved again, the missing one is not.
+    answerBd([child], [{ id: 'C-DONE', status: 'closed' }]);
+    await fetchListForSubscription({ type: GRAPH_ISSUES_TYPE }, { cwd });
+    expect(spawnCount('show')).toBe(2);
+    expect(runBdJsonMock).toHaveBeenLastCalledWith(
+      ['show', 'C-DONE', '--json'],
+      { cwd }
+    );
+  });
+
+  test('splits outside ids into batches of CLOSED_ID_BATCH_MAX', async () => {
+    const outside_ids = Array.from(
+      { length: CLOSED_ID_BATCH_MAX + 1 },
+      (_, i) => `X-${String(i).padStart(4, '0')}`
+    );
+    answerBd(
+      [
+        {
+          id: 'X-ROOT',
+          status: 'open',
+          dependencies: outside_ids.map((id) => ({
+            depends_on_id: id,
+            type: 'related'
+          }))
+        }
+      ],
+      outside_ids.map((id) => ({ id, status: 'closed' }))
+    );
+
+    const res = await fetchListForSubscription(
+      { type: GRAPH_ISSUES_TYPE },
+      { cwd: '/ws/graph-batches' }
+    );
+
+    expect(res.ok && res.items).toHaveLength(CLOSED_ID_BATCH_MAX + 2);
+    const show_sizes = runBdJsonMock.mock.calls
+      .filter((call) => call[0][0] === 'show')
+      .map((call) => call[0].length - 2);
+    expect(show_sizes).toEqual([CLOSED_ID_BATCH_MAX, 1]);
+  });
+});
+
+describe('isLiveIssue', () => {
+  test('rejects tombstones, deleted rows and non-objects', () => {
+    expect(isLiveIssue({ id: 'L-1', status: 'open' })).toBe(true);
+    expect(isLiveIssue({ id: 'L-1', deleted_at: null })).toBe(true);
+    expect(isLiveIssue({ id: 'L-1', status: 'tombstone' })).toBe(false);
+    expect(isLiveIssue({ id: 'L-1', deleted_at: '2026-01-01' })).toBe(false);
+    expect(isLiveIssue(null)).toBe(false);
+    expect(isLiveIssue('L-1')).toBe(false);
   });
 });
