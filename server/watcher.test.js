@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { listManifestPaths } from './dolt-manifest.js';
 import { watchDb } from './watcher.js';
 
 /** @type {{ dir: string, cb: (event: string, filename?: string) => void, w: { close: () => void } }[]} */
@@ -19,8 +20,11 @@ vi.mock('node:fs', () => {
   return { default: { watch }, watch };
 });
 
+vi.mock('./dolt-manifest.js', () => ({ listManifestPaths: vi.fn(() => []) }));
+
 beforeEach(() => {
   watchers.length = 0;
+  vi.mocked(listManifestPaths).mockReturnValue([]);
   vi.useFakeTimers();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -116,5 +120,54 @@ describe('watchDb', () => {
     expect(calls.length).toBe(2);
 
     handle.close();
+  });
+
+  test('a change to an embedded Dolt manifest schedules a refresh', () => {
+    vi.mocked(listManifestPaths).mockReturnValue([
+      {
+        name: 'pw',
+        manifest: '/repo/.beads/embeddeddolt/pw/.dolt/noms/manifest'
+      }
+    ]);
+    const calls = [];
+    const handle = watchDb('/repo', () => calls.push(null), {
+      debounce_ms: 10,
+      explicit_db: '/repo/.beads/ui.db'
+    });
+    expect(watchers.map((w) => w.dir)).toEqual([
+      '/repo/.beads',
+      '/repo/.beads/embeddeddolt/pw/.dolt/noms'
+    ]);
+    const noms = watchers[1];
+
+    noms.cb('change', 'LOCK');
+    vi.advanceTimersByTime(10);
+    expect(calls.length).toBe(0);
+
+    noms.cb('change', 'manifest');
+    vi.advanceTimersByTime(10);
+    expect(calls.length).toBe(1);
+
+    handle.close();
+  });
+
+  test('rebind and close release the manifest watchers', () => {
+    vi.mocked(listManifestPaths).mockReturnValue([
+      {
+        name: 'pw',
+        manifest: '/repo/.beads/embeddeddolt/pw/.dolt/noms/manifest'
+      }
+    ]);
+    const handle = watchDb('/repo', () => {}, {
+      explicit_db: '/repo/.beads/ui.db'
+    });
+    const closes = watchers.map((w) => vi.spyOn(w.w, 'close'));
+
+    handle.rebind({ explicit_db: '/other/.beads/alt.db' });
+    expect(closes.map((c) => c.mock.calls.length)).toEqual([1, 1]);
+
+    const later = watchers.slice(2).map((w) => vi.spyOn(w.w, 'close'));
+    handle.close();
+    expect(later.map((c) => c.mock.calls.length)).toEqual([1, 1]);
   });
 });

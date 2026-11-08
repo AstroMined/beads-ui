@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveWorkspaceDatabase } from './db.js';
+import { listManifestPaths } from './dolt-manifest.js';
 import { debug } from './logging.js';
 
 /**
@@ -9,7 +10,9 @@ import { debug } from './logging.js';
  *
  * For SQLite workspaces this watches the DB file's parent directory and filters
  * by file name. For non-SQLite backends (for example Dolt), this watches the
- * workspace `.beads` directory.
+ * workspace `.beads` directory. Embedded Dolt manifests are watched as well,
+ * because some writes (such as `bd dep add`) change only the manifest, which
+ * sits below `.beads` where a non-recursive watch does not see it.
  *
  * @param {string} root_dir - Project root directory (starting point for resolution).
  * @param {() => void} onChange - Called when changes are detected.
@@ -25,6 +28,8 @@ export function watchDb(root_dir, onChange, options = {}) {
   let timer;
   /** @type {fs.FSWatcher | undefined} */
   let watcher;
+  /** @type {fs.FSWatcher[]} */
+  let manifest_watchers = [];
   let cooldown_until = 0;
   let current_path = '';
   let current_dir = '';
@@ -67,6 +72,20 @@ export function watchDb(root_dir, onChange, options = {}) {
       );
     }
 
+    /**
+     * @param {string} event_type
+     * @param {string} filename - Name logged with the event.
+     */
+    const onEvent = (event_type, filename) => {
+      if (event_type === 'change' || event_type === 'rename') {
+        if (Date.now() < cooldown_until) {
+          return;
+        }
+        log('fs %s %s', event_type, filename);
+        schedule();
+      }
+    };
+
     // (Re)create watcher
     try {
       watcher = fs.watch(
@@ -76,18 +95,36 @@ export function watchDb(root_dir, onChange, options = {}) {
           if (current_file && filename && String(filename) !== current_file) {
             return;
           }
-          if (event_type === 'change' || event_type === 'rename') {
-            if (Date.now() < cooldown_until) {
-              return;
-            }
-            log('fs %s %s', event_type, filename || '');
-            schedule();
-          }
+          onEvent(event_type, filename ? String(filename) : '');
         }
       );
     } catch (err) {
       log('unable to watch directory %s %o', current_dir, err);
     }
+
+    for (const { manifest } of listManifestPaths(base_dir)) {
+      const noms_dir = path.dirname(manifest);
+      const manifest_name = path.basename(manifest);
+      try {
+        manifest_watchers.push(
+          fs.watch(noms_dir, { persistent: true }, (event_type, filename) => {
+            if (filename && String(filename) === manifest_name) {
+              onEvent(event_type, manifest);
+            }
+          })
+        );
+      } catch (err) {
+        log('unable to watch manifest directory %s %o', noms_dir, err);
+      }
+    }
+  };
+
+  const closeWatchers = () => {
+    watcher?.close();
+    for (const w of manifest_watchers) {
+      w.close();
+    }
+    manifest_watchers = [];
   };
 
   // initial bind
@@ -102,7 +139,7 @@ export function watchDb(root_dir, onChange, options = {}) {
         clearTimeout(timer);
         timer = undefined;
       }
-      watcher?.close();
+      closeWatchers();
     },
     /**
      * Re-resolve and reattach watcher when root_dir or explicit_db changes.
@@ -119,7 +156,7 @@ export function watchDb(root_dir, onChange, options = {}) {
       const next_path = next_resolved.path;
       if (next_path !== current_path) {
         // swap watcher
-        watcher?.close();
+        closeWatchers();
         cooldown_until = 0;
         bind(next_root, next_explicit);
       }

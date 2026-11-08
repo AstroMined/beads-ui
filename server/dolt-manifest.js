@@ -16,26 +16,9 @@ import { findNearestBeadsMetadata } from './db.js';
  * embedded Dolt manifest (callers must then treat data as changed).
  */
 export function readManifestFingerprint(cwd) {
-  const metadata_path = findNearestBeadsMetadata(cwd);
-  if (!metadata_path) {
-    return null;
-  }
-  const dolt_root = path.join(path.dirname(metadata_path), 'embeddeddolt');
-  /** @type {string[]} */
-  let db_names;
-  try {
-    db_names = fs
-      .readdirSync(dolt_root, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
-  } catch {
-    return null;
-  }
   const hash = crypto.createHash('sha256');
   let found = false;
-  for (const name of db_names) {
-    const manifest = path.join(dolt_root, name, '.dolt', 'noms', 'manifest');
+  for (const { name, manifest } of listManifestPaths(cwd)) {
     try {
       const content = fs.readFileSync(manifest);
       hash.update(name).update('\0').update(content).update('\0');
@@ -45,4 +28,32 @@ export function readManifestFingerprint(cwd) {
     }
   }
   return found ? hash.digest('hex') : null;
+}
+
+/**
+ * Manifest paths of the embedded Dolt databases of a workspace, sorted by
+ * database name. A path is listed even when its manifest does not exist yet.
+ *
+ * @param {string} cwd - Workspace directory (or any directory below it).
+ * @returns {{ name: string, manifest: string }[]}
+ */
+export function listManifestPaths(cwd) {
+  const metadata_path = findNearestBeadsMetadata(cwd);
+  if (!metadata_path) {
+    return [];
+  }
+  const dolt_root = path.join(path.dirname(metadata_path), 'embeddeddolt');
+  try {
+    return fs
+      .readdirSync(dolt_root, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort()
+      .map((name) => ({
+        name,
+        manifest: path.join(dolt_root, name, '.dolt', 'noms', 'manifest')
+      }));
+  } catch {
+    return [];
+  }
 }
