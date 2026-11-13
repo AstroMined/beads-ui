@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { readManifestFingerprint } from './dolt-manifest.js';
+import {
+  DOLT_JOURNAL_NAME,
+  listStoreWatchTargets,
+  readManifestFingerprint,
+  readStoreSignature
+} from './dolt-manifest.js';
 
 /** @type {string[]} */
 const tmps = [];
@@ -38,6 +43,48 @@ function writeManifest(root, db, content) {
   const file = path.join(noms, 'manifest');
   fs.writeFileSync(file, content);
   return file;
+}
+
+/** A time well outside the journal settle window. */
+const SETTLED = new Date(Date.UTC(2026, 0, 1));
+
+/**
+ * A Dolt server data dir holding database `db`, with a settled journal.
+ */
+function mkDataDir() {
+  const data_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-ui-data-'));
+  tmps.push(data_dir);
+  fs.mkdirSync(path.join(data_dir, '.dolt'));
+  fs.writeFileSync(
+    path.join(data_dir, '.dolt', 'sql-server.info'),
+    '4242:3417:cadcc1b5-74d4-4244-8a28-a3133188b64e'
+  );
+  const noms = path.join(data_dir, 'db', '.dolt', 'noms');
+  fs.mkdirSync(noms, { recursive: true });
+  fs.writeFileSync(path.join(noms, 'manifest'), 'root-a');
+  const journal = path.join(noms, DOLT_JOURNAL_NAME);
+  fs.writeFileSync(journal, 'chunk-1');
+  fs.utimesSync(journal, SETTLED, SETTLED);
+  return { data_dir, noms, journal };
+}
+
+/**
+ * A server-mode workspace for database `db` on `host` and `port`.
+ *
+ * @param {string} [host]
+ * @param {number} [port]
+ */
+function mkServerWorkspace(host = '127.0.0.1', port = 3417) {
+  const root = mkWorkspace(
+    JSON.stringify({
+      dolt_mode: 'server',
+      dolt_server_host: host,
+      dolt_server_port: port,
+      dolt_database: 'db'
+    })
+  );
+  writeManifest(root, 'db', 'frozen-before-switch');
+  return root;
 }
 
 afterEach(() => {
@@ -117,5 +164,126 @@ describe('readManifestFingerprint', () => {
     const root = mkWorkspace();
     writeManifest(root, 'db', 'root-a');
     expect(readManifestFingerprint(root, { [name]: '1' })).toBeNull();
+  });
+});
+
+describe('readManifestFingerprint on a local Dolt server', () => {
+  test('is stable while the journal and manifest are unchanged', () => {
+    const { data_dir } = mkDataDir();
+    const root = mkServerWorkspace();
+    const env = { BDUI_DOLT_DATA_DIR: data_dir };
+    const before = readManifestFingerprint(root, env);
+    expect(before).not.toBeNull();
+    expect(readManifestFingerprint(root, env)).toBe(before);
+  });
+
+  test('changes when a write appends to the journal', () => {
+    const { data_dir, journal } = mkDataDir();
+    const root = mkServerWorkspace();
+    const env = { BDUI_DOLT_DATA_DIR: data_dir };
+    const before = readManifestFingerprint(root, env);
+    fs.appendFileSync(journal, 'chunk-2');
+    fs.utimesSync(journal, SETTLED, SETTLED);
+    expect(readManifestFingerprint(root, env)).not.toBe(before);
+  });
+
+  test('changes when the manifest changes', () => {
+    const { data_dir, noms } = mkDataDir();
+    const root = mkServerWorkspace();
+    const env = { BDUI_DOLT_DATA_DIR: data_dir };
+    const before = readManifestFingerprint(root, env);
+    fs.writeFileSync(path.join(noms, 'manifest'), 'root-b');
+    expect(readManifestFingerprint(root, env)).not.toBe(before);
+  });
+
+  test('is null while the journal is inside the settle window', () => {
+    const { data_dir, journal } = mkDataDir();
+    const root = mkServerWorkspace();
+    const now = new Date();
+    fs.utimesSync(journal, now, now);
+    expect(
+      readManifestFingerprint(root, { BDUI_DOLT_DATA_DIR: data_dir })
+    ).toBeNull();
+  });
+
+  test('ignores the settle window for the store signature', () => {
+    const { data_dir, journal } = mkDataDir();
+    const root = mkServerWorkspace();
+    const env = { BDUI_DOLT_DATA_DIR: data_dir };
+    const settled = readStoreSignature(root, env);
+    const now = new Date();
+    fs.utimesSync(journal, now, now);
+    const fresh = readStoreSignature(root, env);
+    expect(fresh).not.toBeNull();
+    expect(fresh).not.toBe(settled);
+  });
+
+  test('is null when another server owns the data dir', () => {
+    const { data_dir } = mkDataDir();
+    const root = mkServerWorkspace('127.0.0.1', 3418);
+    expect(
+      readManifestFingerprint(root, { BDUI_DOLT_DATA_DIR: data_dir })
+    ).toBeNull();
+  });
+
+  test('is null when no server info names the data dir port', () => {
+    const { data_dir } = mkDataDir();
+    fs.rmSync(path.join(data_dir, '.dolt', 'sql-server.info'));
+    const root = mkServerWorkspace();
+    expect(
+      readManifestFingerprint(root, { BDUI_DOLT_DATA_DIR: data_dir })
+    ).toBeNull();
+  });
+
+  test('is null for a remote server host', () => {
+    const { data_dir } = mkDataDir();
+    const root = mkServerWorkspace('10.64.71.9');
+    expect(
+      readManifestFingerprint(root, { BDUI_DOLT_DATA_DIR: data_dir })
+    ).toBeNull();
+  });
+
+  test('is null when the data dir does not hold the database', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-ui-empty-'));
+    tmps.push(empty);
+    const root = mkServerWorkspace();
+    expect(
+      readManifestFingerprint(root, { BDUI_DOLT_DATA_DIR: empty })
+    ).toBeNull();
+  });
+
+  test('is null when the journal is missing', () => {
+    const { data_dir, journal } = mkDataDir();
+    fs.rmSync(journal);
+    const root = mkServerWorkspace();
+    expect(
+      readManifestFingerprint(root, { BDUI_DOLT_DATA_DIR: data_dir })
+    ).toBeNull();
+  });
+});
+
+describe('listStoreWatchTargets', () => {
+  test('lists each embedded noms dir with its manifest', () => {
+    const root = mkWorkspace();
+    writeManifest(root, 'b', 'x');
+    writeManifest(root, 'a', 'x');
+    const dolt = path.join(root, '.beads', 'embeddeddolt');
+    expect(listStoreWatchTargets(root, NO_ENV)).toEqual([
+      { dir: path.join(dolt, 'a', '.dolt', 'noms'), files: ['manifest'] },
+      { dir: path.join(dolt, 'b', '.dolt', 'noms'), files: ['manifest'] }
+    ]);
+  });
+
+  test('lists the server noms dir with its manifest and journal', () => {
+    const { data_dir, noms } = mkDataDir();
+    const root = mkServerWorkspace();
+    expect(
+      listStoreWatchTargets(root, { BDUI_DOLT_DATA_DIR: data_dir })
+    ).toEqual([{ dir: noms, files: ['manifest', DOLT_JOURNAL_NAME] }]);
+  });
+
+  test('lists nothing for a store with no known files', () => {
+    const root = mkServerWorkspace('10.64.71.9');
+    expect(listStoreWatchTargets(root, NO_ENV)).toEqual([]);
   });
 });

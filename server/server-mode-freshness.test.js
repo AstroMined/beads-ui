@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { runBdJson } from './bd.js';
+import { DOLT_JOURNAL_NAME } from './dolt-manifest.js';
 import { fetchListForSubscription } from './list-adapters.js';
 
 vi.mock('./bd.js', () => ({ runBdJson: vi.fn() }));
@@ -47,6 +48,39 @@ function answerList(rows) {
       ? { code: 0, stdoutJson: rows() }
       : { code: 1, stderr: 'unexpected' }
   );
+}
+
+/**
+ * Number of `bd list` spawns so far.
+ */
+function listSpawns() {
+  return runBdJsonMock.mock.calls.filter((call) => call[0][0] === 'list')
+    .length;
+}
+
+/** A time well outside the journal settle window. */
+const SETTLED = new Date(Date.UTC(2026, 0, 1));
+
+/**
+ * Point `BDUI_DOLT_DATA_DIR` at a data dir holding database `ws` and return
+ * its settled journal path.
+ */
+function mkDataDir() {
+  const data_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-ui-data-'));
+  tmps.push(data_dir);
+  fs.mkdirSync(path.join(data_dir, '.dolt'));
+  fs.writeFileSync(
+    path.join(data_dir, '.dolt', 'sql-server.info'),
+    '4242:3417:cadcc1b5-74d4-4244-8a28-a3133188b64e'
+  );
+  const noms = path.join(data_dir, 'ws', '.dolt', 'noms');
+  fs.mkdirSync(noms, { recursive: true });
+  fs.writeFileSync(path.join(noms, 'manifest'), 'server-root');
+  const journal = path.join(noms, DOLT_JOURNAL_NAME);
+  fs.writeFileSync(journal, 'chunk-1');
+  fs.utimesSync(journal, SETTLED, SETTLED);
+  vi.stubEnv('BDUI_DOLT_DATA_DIR', data_dir);
+  return journal;
 }
 
 /** @param {{ ok: boolean, items?: Array<{ id: string }> }} res */
@@ -94,5 +128,27 @@ describe('a workspace on a Dolt server', () => {
       { cwd }
     );
     expect(ids(second)).toEqual(['W-1']);
+  });
+
+  test('reuses the rows until a write moves the server journal', async () => {
+    const journal = mkDataDir();
+    const cwd = mkServerWorkspace();
+    let rows = [
+      { id: 'W-1', status: 'in_progress', title: 'Epic' },
+      { id: 'W-2', status: 'in_progress', title: 'Task' }
+    ];
+    answerList(() => rows);
+    const spec = { type: 'in-progress-issues' };
+
+    await fetchListForSubscription(spec, { cwd });
+    await fetchListForSubscription(spec, { cwd });
+    expect(listSpawns()).toBe(1);
+
+    rows = [{ id: 'W-1', status: 'in_progress', title: 'Epic' }];
+    fs.appendFileSync(journal, 'chunk-2');
+    fs.utimesSync(journal, SETTLED, SETTLED);
+    const after = await fetchListForSubscription(spec, { cwd });
+    expect(listSpawns()).toBe(2);
+    expect(ids(after)).toEqual(['W-1']);
   });
 });
