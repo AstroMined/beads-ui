@@ -393,7 +393,7 @@ export function projectGraphIssue(row) {
  * @property {string} [cwd] - Working directory for bd commands.
  * @property {symbol} [pass] - Token of the refresh pass making the call.
  * Callers with the same token share one in-flight open-set spawn even
- * when the workspace has no manifest fingerprint.
+ * when the workspace has no store fingerprint.
  */
 
 /**
@@ -407,7 +407,7 @@ export function projectGraphIssue(row) {
  */
 
 /**
- * One open-set fetch per workspace. `fingerprint` is the Dolt manifest
+ * One open-set fetch per workspace. `fingerprint` is the Dolt store
  * fingerprint read before the spawn; `pass` is the token of the refresh pass
  * that started it, or null outside a pass.
  *
@@ -416,8 +416,8 @@ export function projectGraphIssue(row) {
 
 /**
  * Latest open-set fetch per workspace directory. An entry is reused while its
- * fingerprint is unchanged and non-null. With a null fingerprint (no embedded
- * Dolt manifest) nothing tells a later write apart, so it is shared only
+ * fingerprint is unchanged and non-null. With a null fingerprint (no store
+ * file known to change with the data) nothing tells a later write apart, so it is shared only
  * with callers of the refresh pass that started it.
  *
  * @type {Map<string, OpenSetEntry>}
@@ -535,7 +535,7 @@ function canReuseOpenSet(entry, fingerprint, pass) {
 
 /**
  * The open set of a workspace, shared by every open-set type in a refresh
- * pass: callers share one in-flight spawn, and an unchanged non-null manifest
+ * pass: callers share one in-flight spawn, and an unchanged non-null store
  * fingerprint reuses the last successful rows (see `canReuseOpenSet`).
  * Failures are never reused.
  *

@@ -28,3 +28,31 @@ warning. Initialize a database with one of:
 
 After initialization, changes will be detected without restarting the server.
 The watcher can rebind when the workspace or configuration changes at runtime.
+
+## Dolt backends
+
+For a Dolt workspace the server watches the `.beads` directory and the files a
+write changes, and skips a refresh while the store's fingerprint is unchanged.
+Which files those are depends on `.beads/metadata.json`:
+
+- **Embedded** (no `dolt_mode`, or `embedded`, and no `dolt_server_host`): the
+  manifest of each database under `.beads/embeddeddolt/<db>/.dolt/noms`. The
+  fingerprint is the manifests' content.
+- **Server** (`dolt_mode: "server"` with a loopback `dolt_server_host`): the
+  manifest and chunk journal of `<data dir>/<dolt_database>/.dolt/noms`, where
+  the data dir is `BDUI_DOLT_DATA_DIR` (default `~/.local/share/bd-server`) and
+  its `.dolt/sql-server.info` must name `dolt_server_port`, so a second server
+  on another port with the same database names is never mistaken for it. The
+  fingerprint is the journal's inode, size and mtime plus the manifest. It reads
+  as changed while the journal was written in the last 2 seconds.
+- **Anything else** (a remote host, another server's port, a data dir without
+  the database, a `BEADS_DOLT_SERVER_*`, `BEADS_DOLT_SHARED_SERVER`,
+  `BEADS_DOLT_PROXIED_SERVER` or `BEADS_DOLT_PORT` variable, or a metadata file
+  that does not parse): no fingerprint, so every watcher event refreshes the
+  lists.
+
+A change to `metadata.json` re-targets the watched files, as does any `.beads`
+event while no store file is watched. A change seen during the cooldown after a
+refresh is deferred to the cooldown's end and fires then only when the store
+files moved since that refresh, so bd reads that touch a watched file never
+chain refreshes.

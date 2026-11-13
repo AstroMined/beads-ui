@@ -54,6 +54,10 @@ See `bdui --help` for options.
 - `BD_BIN`: path to the `bd` binary.
 - `BDUI_RUNTIME_DIR`: override runtime directory for PID/logs. Defaults to
   `$XDG_RUNTIME_DIR/beads-ui` or the system temp dir.
+- `BDUI_DOLT_DATA_DIR`: data directory of a local Dolt server, holding one
+  directory per database. Defaults to `~/.local/share/bd-server`. Used to detect
+  writes when a workspace runs Dolt in server mode (see
+  [DB Watching](docs/db-watching.md#dolt-backends)).
 - `HOST`: overrides the bind address (default `127.0.0.1`).
 - `PORT`: overrides the listen port (default `3000`).
 

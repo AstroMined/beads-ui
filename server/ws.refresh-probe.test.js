@@ -18,7 +18,7 @@ vi.mock('./list-adapters.js', () => ({ fetchListForSubscription: vi.fn() }));
 
 const DEBOUNCE_MS = 50;
 const MUTATION_WINDOW_MS = 500;
-const SKIP_LOG = 'refresh pass skipped: manifest unchanged (%s)';
+const SKIP_LOG = 'refresh pass skipped: store unchanged (%s)';
 
 const mock_fetch = /** @type {import('vitest').Mock} */ (
   fetchListForSubscription
@@ -112,7 +112,7 @@ afterEach(() => {
 });
 
 describe('refresh pass change probe', () => {
-  test('skips a pass and logs it when the manifest is unchanged', async () => {
+  test('skips a pass and logs it when the store is unchanged', async () => {
     await setup();
 
     await watcherPass();

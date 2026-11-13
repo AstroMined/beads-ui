@@ -52,7 +52,7 @@ let PASS_WAITING = null;
 const REFRESH_PASS_TOKEN_NAME = 'refresh-pass';
 
 /**
- * Change probe: the manifest fingerprint read at the start of the last pass
+ * Change probe: the Dolt store fingerprint read at the start of the last pass
  * that completed without errors, and the workspace it was read for.
  * `CURRENT_WORKSPACE` is replaced on attach and on every workspace switch, so
  * comparing it by identity resets the probe whenever the workspace changes.
@@ -204,8 +204,8 @@ function startRefreshPass() {
 }
 
 /**
- * Refresh every active spec and publish deltas, unless the workspace manifest
- * is unchanged since the start of the last clean pass. The fingerprint is read
+ * Refresh every active spec and publish deltas, unless the workspace's Dolt
+ * store is unchanged since the start of the last clean pass. The fingerprint is read
  * before any fetch, so a write landing mid-pass makes the next pass run.
  */
 async function runRefreshPass() {
@@ -217,7 +217,7 @@ async function runRefreshPass() {
     LAST_PASS_PROBE.workspace === workspace &&
     LAST_PASS_PROBE.fingerprint === fingerprint
   ) {
-    log('refresh pass skipped: manifest unchanged (%s)', fingerprint);
+    log('refresh pass skipped: store unchanged (%s)', fingerprint);
     return;
   }
   const specs = collectActiveListSpecs();
@@ -245,7 +245,7 @@ async function runRefreshPass() {
 }
 
 /**
- * Read the manifest fingerprint of a workspace. The probe only ever saves
+ * Read the Dolt store fingerprint of a workspace (`readManifestFingerprint`). The probe only ever saves
  * work, so any failure reads as "changed" (null).
  *
  * @param {{ root_dir: string } | null} workspace

@@ -1,8 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveWorkspaceDatabase } from './db.js';
-import { listManifestPaths } from './dolt-manifest.js';
+import { listStoreWatchTargets, readStoreSignature } from './dolt-manifest.js';
 import { debug } from './logging.js';
+
+/** Workspace metadata file whose change can switch the Dolt store. */
+const METADATA_NAME = 'metadata.json';
 
 /**
  * Watch the resolved workspace database target and invoke a callback after a
@@ -10,9 +13,15 @@ import { debug } from './logging.js';
  *
  * For SQLite workspaces this watches the DB file's parent directory and filters
  * by file name. For non-SQLite backends (for example Dolt), this watches the
- * workspace `.beads` directory. Embedded Dolt manifests are watched as well,
- * because some writes (such as `bd dep add`) change only the manifest, which
- * sits below `.beads` where a non-recursive watch does not see it.
+ * workspace `.beads` directory. The files a Dolt store write changes are
+ * watched as well (`listStoreWatchTargets`): an embedded manifest sits below
+ * `.beads` where a non-recursive watch does not see it, and a Dolt server
+ * writes to its own data directory. A `metadata.json` change re-targets them,
+ * since it can switch the store, and so does any `.beads` event while no store
+ * file is watched. A change seen during the cooldown after a refresh is
+ * deferred to the cooldown's end and fires then only if the store signature
+ * moved since that refresh: bd reads that touch a watched file (such as a
+ * manifest mtime) never chain into another refresh.
  *
  * @param {string} root_dir - Project root directory (starting point for resolution).
  * @param {() => void} onChange - Called when changes are detected.
@@ -28,9 +37,14 @@ export function watchDb(root_dir, onChange, options = {}) {
   let timer;
   /** @type {fs.FSWatcher | undefined} */
   let watcher;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let deferred;
   /** @type {fs.FSWatcher[]} */
-  let manifest_watchers = [];
+  let store_watchers = [];
   let cooldown_until = 0;
+  /** @type {string | null} */
+  let fired_signature = null;
+  let current_root = root_dir;
   let current_path = '';
   let current_dir = '';
   let current_file = '';
@@ -43,10 +57,66 @@ export function watchDb(root_dir, onChange, options = {}) {
       clearTimeout(timer);
     }
     timer = setTimeout(() => {
+      fired_signature = readStoreSignature(current_root);
       onChange();
       cooldown_until = Date.now() + cooldown_ms;
     }, debounce_ms);
     timer.unref();
+  };
+
+  /**
+   * @param {string} event_type
+   * @param {string} filename - Name logged with the event.
+   */
+  const onEvent = (event_type, filename) => {
+    if (event_type !== 'change' && event_type !== 'rename') {
+      return;
+    }
+    const wait = cooldown_until - Date.now();
+    if (wait > 0) {
+      if (!deferred) {
+        deferred = setTimeout(() => {
+          deferred = undefined;
+          const signature = readStoreSignature(current_root);
+          if (signature !== null && signature !== fired_signature) {
+            log('store changed during cooldown');
+            schedule();
+          }
+        }, wait);
+        deferred.unref();
+      }
+      return;
+    }
+    log('fs %s %s', event_type, filename);
+    schedule();
+  };
+
+  /**
+   * Watch the files a Dolt store write changes.
+   *
+   * @param {string} base_dir
+   */
+  const bindStore = (base_dir) => {
+    for (const { dir, files } of listStoreWatchTargets(base_dir)) {
+      try {
+        store_watchers.push(
+          fs.watch(dir, { persistent: true }, (event_type, filename) => {
+            if (filename && files.includes(String(filename))) {
+              onEvent(event_type, path.join(dir, String(filename)));
+            }
+          })
+        );
+      } catch (err) {
+        log('unable to watch store directory %s %o', dir, err);
+      }
+    }
+  };
+
+  const closeStoreWatchers = () => {
+    for (const w of store_watchers) {
+      w.close();
+    }
+    store_watchers = [];
   };
 
   /**
@@ -56,6 +126,7 @@ export function watchDb(root_dir, onChange, options = {}) {
    * @param {string | undefined} explicit_db
    */
   const bind = (base_dir, explicit_db) => {
+    current_root = base_dir;
     const resolved = resolveWorkspaceDatabase({ cwd: base_dir, explicit_db });
     current_path = resolved.path;
     if (pathIsDirectory(current_path)) {
@@ -72,26 +143,19 @@ export function watchDb(root_dir, onChange, options = {}) {
       );
     }
 
-    /**
-     * @param {string} event_type
-     * @param {string} filename - Name logged with the event.
-     */
-    const onEvent = (event_type, filename) => {
-      if (event_type === 'change' || event_type === 'rename') {
-        if (Date.now() < cooldown_until) {
-          return;
-        }
-        log('fs %s %s', event_type, filename);
-        schedule();
-      }
-    };
-
     // (Re)create watcher
     try {
       watcher = fs.watch(
         current_dir,
         { persistent: true },
         (event_type, filename) => {
+          if (
+            (filename && String(filename) === METADATA_NAME) ||
+            store_watchers.length === 0
+          ) {
+            closeStoreWatchers();
+            bindStore(base_dir);
+          }
           if (current_file && filename && String(filename) !== current_file) {
             return;
           }
@@ -102,29 +166,12 @@ export function watchDb(root_dir, onChange, options = {}) {
       log('unable to watch directory %s %o', current_dir, err);
     }
 
-    for (const { manifest } of listManifestPaths(base_dir)) {
-      const noms_dir = path.dirname(manifest);
-      const manifest_name = path.basename(manifest);
-      try {
-        manifest_watchers.push(
-          fs.watch(noms_dir, { persistent: true }, (event_type, filename) => {
-            if (filename && String(filename) === manifest_name) {
-              onEvent(event_type, manifest);
-            }
-          })
-        );
-      } catch (err) {
-        log('unable to watch manifest directory %s %o', noms_dir, err);
-      }
-    }
+    bindStore(base_dir);
   };
 
   const closeWatchers = () => {
     watcher?.close();
-    for (const w of manifest_watchers) {
-      w.close();
-    }
-    manifest_watchers = [];
+    closeStoreWatchers();
   };
 
   // initial bind
@@ -138,6 +185,10 @@ export function watchDb(root_dir, onChange, options = {}) {
       if (timer) {
         clearTimeout(timer);
         timer = undefined;
+      }
+      if (deferred) {
+        clearTimeout(deferred);
+        deferred = undefined;
       }
       closeWatchers();
     },
@@ -157,6 +208,10 @@ export function watchDb(root_dir, onChange, options = {}) {
       if (next_path !== current_path) {
         // swap watcher
         closeWatchers();
+        if (deferred) {
+          clearTimeout(deferred);
+          deferred = undefined;
+        }
         cooldown_until = 0;
         bind(next_root, next_explicit);
       }
