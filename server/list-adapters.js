@@ -187,6 +187,18 @@ async function runBdJsonWithRetry(args, options) {
  */
 
 /**
+ * `bd show` args for one issue in the detail shape. bd 1.3.4 omits the
+ * `dependents` array unless `--include-dependents` is passed, and the detail
+ * view, the epic children list and the epics view all read it.
+ *
+ * @param {string} id
+ * @returns {string[]}
+ */
+export function showIssueArgs(id) {
+  return ['show', id, '--json', '--include-dependents'];
+}
+
+/**
  * Build concrete `bd` CLI args for a subscription type + params.
  * Always includes `--json` for parseable output. For `ready-issues` and
  * `blocked-issues` these are the fallback commands, spawned only when the
@@ -247,7 +259,7 @@ export function mapSubscriptionToBdArgs(spec) {
       if (id.length === 0) {
         throw badRequest('Missing param: params.id');
       }
-      return ['show', id, '--json'];
+      return showIssueArgs(id);
     }
     default: {
       throw badRequest(`Unknown subscription type: ${t}`);

@@ -14,7 +14,13 @@ function setupDom() {
  *   id: string,
  *   title?: string,
  *   dependencies: Array<{ id: string, dependency_type: string }>,
- *   dependents: Array<{ id: string, dependency_type: string }>
+ *   dependents: Array<{
+ *     id: string,
+ *     dependency_type: string,
+ *     title?: string,
+ *     status?: string,
+ *     issue_type?: string
+ *   }>
  * }} DetailFixture
  */
 
@@ -155,6 +161,35 @@ describe('views/detail dependencies', () => {
     // send should not be called with dep-add
     const calls = send.mock.calls.map((c) => c[0]);
     expect(calls.includes('dep-add')).toBe(false);
+  });
+});
+
+describe('views/detail dependents', () => {
+  test('lists each bd 1.3.4 dependent by its title', async () => {
+    const mount = await mountDetail({
+      id: 'UI-90',
+      dependencies: [],
+      dependents: [
+        {
+          id: 'UI-91',
+          title: 'Child task',
+          status: 'open',
+          issue_type: 'task',
+          dependency_type: 'parent-child'
+        }
+      ]
+    });
+
+    const cards = Array.from(mount.querySelectorAll('.props-card'));
+    const card = cards.find(
+      (el) =>
+        el.querySelector('.props-card__title')?.textContent?.trim() ===
+        'Dependents'
+    );
+    const rows = Array.from(card?.querySelectorAll('li[data-href]') || []);
+    expect(rows.map((li) => li.textContent?.includes('Child task'))).toEqual([
+      true
+    ]);
   });
 });
 

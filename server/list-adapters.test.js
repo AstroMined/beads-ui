@@ -68,6 +68,36 @@ function answerBd(open_rows, outside_rows = []) {
   });
 }
 
+/** One dependent element in the bd 1.3.4 `bd show --include-dependents` shape. */
+const CHILD_DEPENDENT = Object.freeze({
+  id: 'UI-CHILD',
+  title: 'Child',
+  status: 'open',
+  priority: 2,
+  issue_type: 'task',
+  dependency_type: 'parent-child',
+  created_at: '2026-11-01T00:00:00Z',
+  updated_at: '2026-11-01T00:00:00Z'
+});
+
+/**
+ * Fake of bd 1.3.4 `bd show`: the `dependents` array is present only when
+ * `--include-dependents` is passed.
+ *
+ * @param {string[]} args
+ */
+async function fakeBdShow(args) {
+  if (args[0] !== 'show') {
+    return { code: 1, stderr: 'unexpected' };
+  }
+  /** @type {Record<string, unknown>} */
+  const row = { id: args[1], title: 'Epic', status: 'open' };
+  if (args.includes('--include-dependents')) {
+    row.dependents = [CHILD_DEPENDENT];
+  }
+  return { code: 0, stdoutJson: row };
+}
+
 describe('list adapters for subscription types', () => {
   beforeEach(() => {
     runBdJsonMock.mockReset();
@@ -166,7 +196,18 @@ describe('list adapters for subscription types', () => {
       type: 'issue-detail',
       params: { id: 'UI-123' }
     });
-    expect(args).toEqual(['show', 'UI-123', '--json']);
+    expect(args).toEqual(['show', 'UI-123', '--json', '--include-dependents']);
+  });
+
+  test('fetchListForSubscription serves issue-detail with its dependents', async () => {
+    runBdJsonMock.mockImplementation(fakeBdShow);
+    const res = await fetchListForSubscription({
+      type: 'issue-detail',
+      params: { id: 'UI-EPIC' }
+    });
+    expect(res.ok).toBe(true);
+    const items = res.ok ? res.items : [];
+    expect(items.map((it) => it.dependents)).toEqual([[CHILD_DEPENDENT]]);
   });
 
   test('fetchListForSubscription returns normalized items (Date.parse)', async () => {

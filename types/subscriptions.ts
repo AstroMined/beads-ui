@@ -31,6 +31,8 @@ export interface DependencyRef {
   status?: string;
   priority?: number;
   issue_type?: string;
+  // Edge type bd reports on each element, for example `blocks`
+  dependency_type?: string;
   created_at?: number;
   updated_at?: number;
   closed_at?: number | null;
