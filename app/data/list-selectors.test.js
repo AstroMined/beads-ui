@@ -186,20 +186,28 @@ describe('list-selectors', () => {
         {
           id: '42',
           issue_type: 'epic',
+          // The fields of a bd 1.3.4 `bd show --include-dependents` element,
+          // with timestamps as IssueLite numbers.
           dependents: [
             {
               id: 'E1',
+              title: 'Later child',
+              status: 'open',
               priority: 1,
+              issue_type: 'task',
+              dependency_type: 'parent-child',
               created_at: 10_000,
-              updated_at: 10_000,
-              closed_at: null
+              updated_at: 10_000
             },
             {
               id: 'E2',
+              title: 'Earlier child',
+              status: 'open',
               priority: 1,
+              issue_type: 'task',
+              dependency_type: 'parent-child',
               created_at: 9_000,
-              updated_at: 9_000,
-              closed_at: null
+              updated_at: 9_000
             }
           ]
         }
