@@ -53,17 +53,17 @@ closed and pinned ones. One spawn serves every open-set type in a refresh pass:
 concurrent fetches share it, and an unchanged Dolt manifest fingerprint reuses
 the last rows.
 
-| Type                 | Source                                                                                                                       |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `all-issues`         | The open set, unchanged                                                                                                      |
-| `graph-issues`       | The open set projected, plus referenced beads outside it (see Notes)                                                         |
-| `in-progress-issues` | The open set filtered to status `in_progress`                                                                                |
-| `ready-issues`       | Derived from the open set when `bd --version` is 0.63.3, else `bd ready --limit 1000 --json`                                 |
-| `blocked-issues`     | Derived from the open set (with `blocked_by` and `blocked_by_count`) when `bd --version` is 0.63.3, else `bd blocked --json` |
-| `closed-issues`      | `bd list --status closed --closed-after <now - 7 days> --limit 1000` (then filter first; see Special Cases)                  |
-| `status-issues`      | `bd list --status <params.status> --limit 1000`                                                                              |
-| `epics`              | `bd epic status --json`                                                                                                      |
-| `issue-detail`       | `bd show <id> --json` (use `dependents` from the epic detail for children)                                                   |
+| Type                 | Source                                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `all-issues`         | The open set, unchanged                                                                                     |
+| `graph-issues`       | The open set projected, plus referenced beads outside it (see Notes)                                        |
+| `in-progress-issues` | The open set filtered to status `in_progress`                                                               |
+| `ready-issues`       | `bd ready --limit 1000 --json`                                                                              |
+| `blocked-issues`     | `bd blocked --json` (rows carry `blocked_by` and `blocked_by_count`)                                        |
+| `closed-issues`      | `bd list --status closed --closed-after <now - 7 days> --limit 1000` (then filter first; see Special Cases) |
+| `status-issues`      | `bd list --status <params.status> --limit 1000`                                                             |
+| `epics`              | `bd epic status --json`                                                                                     |
+| `issue-detail`       | `bd show <id> --json` (use `dependents` from the epic detail for children)                                  |
 
 Notes:
 
@@ -74,9 +74,11 @@ Notes:
   dependency targets outside the open set (closed or pinned beads) are resolved
   by batched `bd show <ids...> --json`, keep their real status and are cached by
   id until they reappear in the open set.
-- Derived Ready and Blocked follow the rules captured from bd 0.63.3 in
-  `server/fixtures/bd-ready-parity.json`. Any other bd version spawns `bd ready`
-  and `bd blocked` and logs the mismatch once.
+- Ready and Blocked always spawn `bd ready` and `bd blocked`; they are not
+  derived from the open set. bd decides readiness with rules beads-ui would have
+  to copy and keep in step with each bd release: category-active custom
+  statuses, the `conditional-blocks` and `waits-for` dependency types, excluded
+  issue types and deferred parents.
 
 ### Refresh Algorithm (per run)
 

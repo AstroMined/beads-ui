@@ -12,11 +12,10 @@ import {
   makeOk
 } from '../app/protocol.js';
 import { runInBackground } from './bd-priority.js';
-import { resetBdVersion } from './bd-version.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
 import { resolveWorkspaceDatabase } from './db.js';
 import { readManifestFingerprint } from './dolt-manifest.js';
-import { fetchListForSubscription } from './list-adapters.js';
+import { fetchListForSubscription, showIssueArgs } from './list-adapters.js';
 import { debug } from './logging.js';
 import { getAvailableWorkspaces } from './registry-watcher.js';
 import {
@@ -551,7 +550,6 @@ export function attachWsServer(http_server, options = {}) {
     root_dir: initial_root,
     db_path: initial_db.path
   };
-  resetBdVersion(initial_root);
 
   if (options.watcher) {
     DB_WATCHER = options.watcher;
@@ -648,7 +646,6 @@ export function attachWsServer(http_server, options = {}) {
       root_dir: resolved_root,
       db_path: new_db.path
     };
-    resetBdVersion(resolved_root);
 
     const changed = new_db.path !== old_path;
 
@@ -1002,7 +999,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1047,7 +1044,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1093,7 +1090,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1157,7 +1154,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1254,7 +1251,7 @@ export async function handleMessage(ws, data) {
       return;
     }
     const id = typeof view_id === 'string' && view_id.length > 0 ? view_id : a;
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1298,7 +1295,7 @@ export async function handleMessage(ws, data) {
       return;
     }
     const id = typeof view_id === 'string' && view_id.length > 0 ? view_id : a;
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1341,7 +1338,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1384,7 +1381,7 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    const shown = await runBdJson(['show', id, '--json']);
+    const shown = await runBdJson(showIssueArgs(id));
     if (shown.code !== 0) {
       ws.send(
         JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
@@ -1551,7 +1548,6 @@ export async function handleMessage(ws, data) {
       root_dir: resolved,
       db_path: new_db.path
     };
-    resetBdVersion(resolved);
 
     const changed = new_db.path !== old_path;
 

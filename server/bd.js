@@ -1,11 +1,17 @@
 import { spawn } from 'node:child_process';
 import { BD_PRIORITY_BACKGROUND, currentBdPriority } from './bd-priority.js';
 import { resolveDbPath } from './db.js';
+import { isServerStore } from './dolt-manifest.js';
 import { debug } from './logging.js';
 
 export { runInBackground } from './bd-priority.js';
 
 const log = debug('bd');
+
+/** bd verbs that only read the store. */
+const READ_ONLY_VERBS = new Set(['show', 'list', 'ready', 'blocked']);
+/** Subcommands of `bd dep` that only read the store. */
+const READ_ONLY_DEP_SUBCOMMANDS = new Set(['list']);
 
 /** True while a bd job holds the run slot. */
 let bd_slot_held = false;
@@ -67,12 +73,41 @@ export function getBdBin() {
  * Run the `bd` CLI with provided arguments.
  * Shell is not used to avoid injection; args must be pre-split.
  *
+ * Calls go through the run queue, except read-only calls against a Dolt
+ * server store: the server serves concurrent clients, so those reads need
+ * not wait behind each other.
+ *
  * @param {string[]} args - Arguments to pass (e.g., ["list", "--json"]).
  * @param {{ cwd?: string, env?: Record<string, string | undefined>, timeout_ms?: number }} [options]
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
 export function runBd(args, options = {}) {
+  if (
+    isReadOnlyBdCall(args) &&
+    isServerStore(options.cwd || process.cwd(), options.env || process.env)
+  ) {
+    return runBdUnlocked(args, options);
+  }
   return withBdRunQueue(async () => runBdUnlocked(args, options));
+}
+
+/**
+ * Whether a bd call only reads the store, judged by its verb (the first
+ * argument that is not a flag) and, for `dep`, the subcommand after it.
+ *
+ * @param {string[]} args
+ * @returns {boolean}
+ */
+function isReadOnlyBdCall(args) {
+  const verb_index = args.findIndex((arg) => !arg.startsWith('-'));
+  if (verb_index < 0) {
+    return false;
+  }
+  const verb = args[verb_index];
+  if (verb === 'dep') {
+    return READ_ONLY_DEP_SUBCOMMANDS.has(args[verb_index + 1]);
+  }
+  return READ_ONLY_VERBS.has(verb);
 }
 
 /**
@@ -186,7 +221,8 @@ function buildBdArgs(args) {
 /**
  * Serialize `bd` invocations.
  * Dolt embedded mode can crash when multiple `bd` processes run concurrently
- * against the same workspace.
+ * against the same workspace. Every write and every call outside server mode
+ * runs here; see `runBd`.
  *
  * Waiting interactive jobs run before waiting background jobs (see
  * `runInBackground`); a running job is never interrupted and jobs of the same
