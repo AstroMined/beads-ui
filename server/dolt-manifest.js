@@ -61,7 +61,7 @@ const DATABASE_NAME = /^[A-Za-z0-9_-]+$/;
  *
  * - Embedded: the content of every database manifest. A read-only bd call
  *   rewrites a manifest's mtime but not its content, while every bd write
- *   changes it (`manifest_probe` in `server/fixtures/bd-ready-parity.json`).
+ *   changes it (the manifest probe recorded in commit a64adef).
  * - Server: the chunk journal's inode, size and mtime plus the manifest
  *   content. A server write appends to the journal and can leave the manifest
  *   unchanged.
