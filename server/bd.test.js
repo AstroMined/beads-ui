@@ -102,6 +102,48 @@ function make_temp_dir() {
   return dir;
 }
 
+/** Port the fake Dolt server of `makeServerWorkspace` listens on. */
+const SERVER_PORT = 3417;
+
+/**
+ * A workspace whose metadata.json names a loopback Dolt server, plus the env
+ * pointing bdui at that server's data dir.
+ */
+function makeServerWorkspace() {
+  const cwd = make_temp_dir();
+  fs.mkdirSync(path.join(cwd, '.beads'));
+  fs.writeFileSync(
+    path.join(cwd, '.beads', 'metadata.json'),
+    JSON.stringify({
+      dolt_mode: 'server',
+      dolt_server_host: '127.0.0.1',
+      dolt_server_port: SERVER_PORT,
+      dolt_database: 'db'
+    })
+  );
+  const data_dir = make_temp_dir();
+  fs.mkdirSync(path.join(data_dir, '.dolt'));
+  fs.writeFileSync(
+    path.join(data_dir, '.dolt', 'sql-server.info'),
+    `4242:${SERVER_PORT}:cadcc1b5-74d4-4244-8a28-a3133188b64e`
+  );
+  fs.mkdirSync(path.join(data_dir, 'db', '.dolt', 'noms'), { recursive: true });
+  return { cwd, env: { BDUI_DOLT_DATA_DIR: data_dir } };
+}
+
+/**
+ * A workspace whose metadata.json names the embedded Dolt store.
+ */
+function makeEmbeddedWorkspace() {
+  const cwd = make_temp_dir();
+  fs.mkdirSync(path.join(cwd, '.beads'));
+  fs.writeFileSync(
+    path.join(cwd, '.beads', 'metadata.json'),
+    JSON.stringify({ dolt_mode: 'embedded' })
+  );
+  return { cwd, env: {} };
+}
+
 beforeEach(() => {
   mockedSpawn.mockReset();
 });
@@ -282,6 +324,83 @@ describe('bd run queue priority', () => {
     expect(failed.code).toBe(1);
     expect(next.code).toBe(0);
   });
+});
+
+describe('bd run queue by store mode', () => {
+  /** @type {Array<[string, string[]]>} */
+  const READS = [
+    ['show', ['show', 'UI-1', 'read']],
+    ['list', ['list', '--json', 'read']],
+    ['ready', ['ready', '--json', 'read']],
+    ['blocked', ['blocked', '--json', 'read']],
+    ['dep list', ['dep', 'list', 'UI-1', 'read']],
+    ['a read with a leading flag', ['--sandbox', 'list', 'read']]
+  ];
+
+  test.each(READS)(
+    'a server-mode %s starts while a write holds the queue',
+    async (_label, read_args) => {
+      const spawns = controlSpawns();
+      const workspace = makeServerWorkspace();
+      const write = runBd(['update', 'UI-1', '--status', 'write'], workspace);
+      await spawns.untilStarted(1);
+
+      const read = runBd(read_args, workspace);
+      const started_during_write = spawns.started.slice();
+
+      spawns.finish('write');
+      await spawns.untilStarted(2);
+      spawns.finish('read');
+      await Promise.all([write, read]);
+      expect(started_during_write).toEqual(['write', 'read']);
+    }
+  );
+
+  test.each(READS)(
+    'an embedded-mode %s waits for the write holding the queue',
+    async (_label, read_args) => {
+      const spawns = controlSpawns();
+      const workspace = makeEmbeddedWorkspace();
+      const write = runBd(['update', 'UI-1', '--status', 'write'], workspace);
+      await spawns.untilStarted(1);
+
+      const read = runBd(read_args, workspace);
+      await Promise.resolve();
+      const started_during_write = spawns.started.slice();
+
+      spawns.finish('write');
+      await spawns.untilStarted(2);
+      spawns.finish('read');
+      await Promise.all([write, read]);
+      expect(started_during_write).toEqual(['write']);
+      expect(spawns.started).toEqual(['write', 'read']);
+    }
+  );
+
+  test.each([
+    ['update', ['update', 'UI-2', '--status', 'second']],
+    ['dep add', ['dep', 'add', 'UI-2', 'second']],
+    ['comments', ['comments', 'UI-2', 'second']]
+  ])(
+    'a server-mode %s waits for the write holding the queue',
+    async (_label, second_args) => {
+      const spawns = controlSpawns();
+      const workspace = makeServerWorkspace();
+      const first = runBd(['update', 'UI-1', '--status', 'first'], workspace);
+      await spawns.untilStarted(1);
+
+      const second = runBd(second_args, workspace);
+      await Promise.resolve();
+      const started_during_first = spawns.started.slice();
+
+      spawns.finish('first');
+      await spawns.untilStarted(2);
+      spawns.finish('second');
+      await Promise.all([first, second]);
+      expect(started_during_first).toEqual(['first']);
+      expect(spawns.started).toEqual(['first', 'second']);
+    }
+  );
 });
 
 describe('runBdJson', () => {
