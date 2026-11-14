@@ -91,6 +91,19 @@ export function readStoreSignature(cwd, env = process.env) {
 }
 
 /**
+ * Whether bd reaches the workspace's store through a loopback Dolt server
+ * whose data directory is on this host (see `resolveDoltStore`). Such a
+ * server serves concurrent bd clients; an embedded store does not.
+ *
+ * @param {string} cwd - Workspace directory (or any directory below it).
+ * @param {NodeJS.ProcessEnv} [env] - Environment bd runs with.
+ * @returns {boolean}
+ */
+export function isServerStore(cwd, env = process.env) {
+  return resolveDoltStore(cwd, env).kind === 'server';
+}
+
+/**
  * @param {DoltStore} store
  * @param {boolean} settle - Read a journal younger than `JOURNAL_SETTLE_MS`
  * as null.
