@@ -1,10 +1,7 @@
 /**
- * @import { DepIssue } from '../app/data/dep-graph.js'
  * @import { GraphEdge } from '../types/subscriptions.js'
  */
-import { deriveBdBlocked, deriveBdReadyIds } from '../app/data/dep-graph.js';
 import { GRAPH_ISSUES_TYPE } from '../app/data/graph-subscription.js';
-import { shouldDeriveReady } from './bd-version.js';
 import { runBdJson } from './bd.js';
 import { readManifestFingerprint } from './dolt-manifest.js';
 import { debug } from './logging.js';
@@ -64,8 +61,8 @@ const TOMBSTONE_STATUS = 'tombstone';
 const BD_NOT_FOUND_PATTERN = /no issues? found matching/i;
 
 /**
- * The open set: every non-closed, non-pinned bead (see `rules.open_set` in
- * `server/fixtures/bd-ready-parity.json`).
+ * The open set: `bd list` without `--all`, which leaves out closed and pinned
+ * beads.
  */
 const OPEN_SET_ARGS = Object.freeze([
   'list',
@@ -84,9 +81,6 @@ const OPEN_SET_TYPES = new Set([
   GRAPH_ISSUES_TYPE,
   'in-progress-issues'
 ]);
-
-/** Types derived from the open set when the bd version allows it. */
-const DERIVED_TYPES = new Set(['ready-issues', 'blocked-issues']);
 
 /**
  * Extra attempts (after the first) for read-only list fetches. A transient
@@ -200,9 +194,7 @@ export function showIssueArgs(id) {
 
 /**
  * Build concrete `bd` CLI args for a subscription type + params.
- * Always includes `--json` for parseable output. For `ready-issues` and
- * `blocked-issues` these are the fallback commands, spawned only when the
- * workspace's bd version does not allow deriving them from the open set.
+ * Always includes `--json` for parseable output.
  *
  * @param {{ type: string, params?: Record<string, string | number | boolean> }} spec
  * @returns {string[]}
@@ -736,47 +728,9 @@ async function fetchFromOpenSet(type, cwd, pass) {
 }
 
 /**
- * Derive `ready-issues` or `blocked-issues` from the open set with the bd
- * 0.63.3 rules in `app/data/dep-graph.js`. Rows keep bd's full list fields;
- * ready rows keep the open-set order (the board sorts them), and blocked rows
- * are sorted by id and carry `blocked_by` and `blocked_by_count` like
- * `bd blocked --json`.
- *
- * @param {string} type
- * @param {string | undefined} cwd
- * @param {symbol | null} pass
- * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
- */
-async function fetchDerived(type, cwd, pass) {
-  const open = await loadOpenSet(cwd, pass);
-  if (!open.ok) {
-    return open;
-  }
-  // bd list rows carry the DepIssue fields; extra fields are ignored.
-  const issues = /** @type {DepIssue[]} */ (open.rows);
-  if (type === 'ready-issues') {
-    const ready = new Set(deriveBdReadyIds(issues, Date.now()));
-    const rows = open.rows.filter((row) => ready.has(String(row.id ?? '')));
-    return { ok: true, items: normalizeIssueList(rows) };
-  }
-  /** @type {Map<string, BdRow>} */
-  const by_id = new Map();
-  for (const row of open.rows) {
-    by_id.set(String(row.id ?? ''), row);
-  }
-  const rows = deriveBdBlocked(issues).map((blocked) => ({
-    ...by_id.get(blocked.id),
-    id: blocked.id,
-    blocked_by: blocked.blocked_by,
-    blocked_by_count: blocked.blocked_by.length
-  }));
-  return { ok: true, items: normalizeIssueList(rows) };
-}
-
-/**
  * Execute the mapped `bd` command for a subscription spec and return normalized items.
  * Open-set types share one `bd list` spawn per refresh pass; `ready-issues`
- * and `blocked-issues` are derived from it when the bd version allows.
+ * and `blocked-issues` spawn `bd ready` and `bd blocked`.
  * Errors do not throw; they are surfaced as a structured object.
  *
  * @param {{ type: string, params?: Record<string, string | number | boolean> }} spec
@@ -800,12 +754,6 @@ export async function fetchListForSubscription(spec, options = {}) {
   try {
     if (OPEN_SET_TYPES.has(type)) {
       return await fetchFromOpenSet(type, options.cwd, pass);
-    }
-    if (
-      DERIVED_TYPES.has(type) &&
-      (await shouldDeriveReady(workspaceDir(options.cwd)))
-    ) {
-      return await fetchDerived(type, options.cwd, pass);
     }
     const res = await runBdJsonWithRetry(args, { cwd: options.cwd });
     const failure = bdFailure(res);

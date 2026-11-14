@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import {
   MAX_COLUMN_NODES,
@@ -15,8 +12,6 @@ import {
   computeSuggestions,
   computeUnlocks,
   computeWorkOrder,
-  deriveBdBlocked,
-  deriveBdReadyIds,
   descendantIds,
   findCycles,
   hasOrderingRelations,
@@ -34,11 +29,6 @@ import {
  * @typedef {import('./dep-graph.js').DepIssue} DepIssue
  */
 
-/** The bd 0.63.3 ready/blocked capture, relative to this file. */
-const FIXTURE_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../server/fixtures/bd-ready-parity.json'
-);
 /** Seeds for the deterministic shuffles and random graphs. */
 const SHUFFLE_SEEDS = [1, 7, 42, 1234, 99991];
 /** Number of beads in each random graph of the inverse property test. */
@@ -823,57 +813,6 @@ describe('hasOrderingRelations', () => {
         dependents: [{ id: 'z', dependency_type: 'blocks' }]
       })
     ).toBe(true);
-  });
-});
-
-describe('bd 0.63.3 parity', () => {
-  const fixture = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
-  const now_ms = Date.parse(fixture.captured_at);
-
-  test('derives bd ready ids from the open set', () => {
-    expect(deriveBdReadyIds(fixture.open_set, now_ms)).toEqual(
-      fixture.ready_ids
-    );
-  });
-
-  test('derives bd blocked ids and blocked_by from the open set', () => {
-    const blocked = deriveBdBlocked(fixture.open_set);
-    expect(blocked.map((b) => b.id)).toEqual(fixture.blocked_ids);
-    expect(blocked).toEqual(
-      fixture.blocked.map(
-        (/** @type {{ id: string, blocked_by: string[] }} */ b) => ({
-          id: b.id,
-          blocked_by: b.blocked_by
-        })
-      )
-    );
-  });
-
-  test('gives the same result for shuffled input', () => {
-    for (const seed of SHUFFLE_SEEDS) {
-      const rows = shuffled(fixture.open_set, seed);
-      expect(deriveBdReadyIds(rows, now_ms)).toEqual(fixture.ready_ids);
-      expect(deriveBdBlocked(rows).map((b) => b.id)).toEqual(
-        fixture.blocked_ids
-      );
-    }
-  });
-
-  test('compares defer_until as written against now', () => {
-    const rows = [
-      { id: 'a', status: 'open', defer_until: '2026-01-01T00:00:00Z' },
-      { id: 'b', status: 'open', defer_until: null },
-      { id: 'c', status: 'open', defer_until: 'not a date' }
-    ];
-    expect(deriveBdReadyIds(rows, Date.parse('2025-12-31T23:59:59Z'))).toEqual([
-      'b',
-      'c'
-    ]);
-    expect(deriveBdReadyIds(rows, Date.parse('2026-01-01T00:00:00Z'))).toEqual([
-      'a',
-      'b',
-      'c'
-    ]);
   });
 });
 

@@ -1,6 +1,5 @@
 /**
- * Pure dependency model shared by the Board filters, the Graph tab and the
- * server's derived Ready and Blocked columns.
+ * Pure dependency model shared by the Board filters and the Graph tab.
  *
  * Edges come from list rows: in row X, `{ depends_on_id: Y, type: 'blocks' }`
  * means Y must close before X can start. `parent-child` edges (merged with the
@@ -16,7 +15,7 @@ import { DEFAULT_PRIORITY } from '../utils/priority.js';
 /** Dependency types that order work. Other types are listed, never ordered. */
 export const ORDERING_DEP_TYPES = Object.freeze(['blocks']);
 
-/** Statuses `canStart` accepts; bd 0.63.3 ready admits only `open`. */
+/** Statuses `canStart` accepts. */
 export const START_STATUSES = Object.freeze(['open']);
 
 /** Most nodes a graph slice may hold before its depth is lowered. */
@@ -41,7 +40,7 @@ const PARENT_CHILD_TYPE = 'parent-child';
 const DONE_STATUS = 'closed';
 
 /**
- * Statuses that count as done for ordering. bd 0.63.3 leaves both out of
+ * Statuses that count as done for ordering. `bd list` leaves both out of
  * the open set, so neither ever blocks nor waits on anything.
  */
 const DONE_STATUSES = new Set([DONE_STATUS, 'pinned']);
@@ -54,12 +53,6 @@ const DONE_STATUSES = new Set([DONE_STATUS, 'pinned']);
 function isDoneStatus(status) {
   return status !== undefined && DONE_STATUSES.has(status);
 }
-
-/** The only dependency type bd 0.63.3 treats as blocking. */
-const BD_BLOCKING_DEP_TYPE = 'blocks';
-
-/** The only status bd 0.63.3 ready admits. */
-const BD_READY_STATUS = 'open';
 
 const ORDERING_TYPE_SET = new Set(ORDERING_DEP_TYPES);
 const START_STATUS_SET = new Set(START_STATUSES);
@@ -1507,96 +1500,4 @@ export function hasOrderingRelations(issue_or_entry) {
   return (
     ordering(issue_or_entry.dependencies) || ordering(issue_or_entry.dependents)
   );
-}
-
-/**
- * Direct bd blockers of every row: targets of `blocks` edges that are in the
- * open set.
- *
- * @param {Map<string, DepIssue>} open
- * @returns {Map<string, string[]>}
- */
-function bdDirectBlockers(open) {
-  /** @type {Map<string, string[]>} */
-  const direct = new Map();
-  for (const [id, row] of open) {
-    /** @type {Set<string>} */
-    const targets = new Set();
-    for (const edge of edgesOf(row)) {
-      const target = edgeTarget(edge);
-      if (edgeType(edge) === BD_BLOCKING_DEP_TYPE && open.has(target)) {
-        targets.add(target);
-      }
-    }
-    direct.set(id, Array.from(targets).sort(cmpStr));
-  }
-  return direct;
-}
-
-/**
- * The bd 0.63.3 `bd blocked` set, derived from the open set (every
- * non-closed, non-pinned bead). X is blocked when a `blocks` edge names an
- * open-set bead, or when its parent is in the open set and has such an edge
- * (one level only, whatever the statuses). `blocked_by` is X's own blockers
- * when it has any, otherwise `[parent]`; several own blockers are sorted by
- * id since bd's order was not captured.
- *
- * @param {DepIssue[]} rows - The open set.
- * @returns {Array<{ id: string, blocked_by: string[] }>} Sorted by id.
- */
-export function deriveBdBlocked(rows) {
-  const open = mergeRows(Array.isArray(rows) ? rows : []);
-  const direct = bdDirectBlockers(open);
-  /** @type {Array<{ id: string, blocked_by: string[] }>} */
-  const out = [];
-  for (const [id, row] of sortedById(open)) {
-    const own = direct.get(id) ?? [];
-    const parent = parentOf(row);
-    if (own.length > 0) {
-      out.push({ id, blocked_by: own });
-    } else if (
-      parent !== null &&
-      open.has(parent) &&
-      (direct.get(parent) ?? []).length > 0
-    ) {
-      out.push({ id, blocked_by: [parent] });
-    }
-  }
-  return out;
-}
-
-/**
- * The bd 0.63.3 `bd ready` ids, derived from the open set: status exactly
- * `open`, not in the blocked set, not ephemeral, and `defer_until` absent or
- * not after `now_ms`. An unparseable `defer_until` is ignored.
- * bd 0.63.3 writes `defer_until` as local wall-clock time with a `Z` suffix;
- * the value is compared as written (as UTC), which matches the captured
- * fixture, so within the host's UTC offset of the boundary the result can
- * differ from bd.
- *
- * @param {DepIssue[]} rows - The open set.
- * @param {number} now_ms - Current time in epoch ms.
- * @returns {string[]} Sorted ids.
- */
-export function deriveBdReadyIds(rows, now_ms) {
-  const open = mergeRows(Array.isArray(rows) ? rows : []);
-  const blocked = new Set(
-    deriveBdBlocked(Array.from(open.values())).map((b) => b.id)
-  );
-  return Array.from(open.values())
-    .filter((row) => {
-      if (row.status !== BD_READY_STATUS || blocked.has(row.id)) {
-        return false;
-      }
-      if (row.ephemeral === true) {
-        return false;
-      }
-      if (typeof row.defer_until !== 'string' || row.defer_until === '') {
-        return true;
-      }
-      const defer_ms = Date.parse(row.defer_until);
-      return Number.isNaN(defer_ms) || defer_ms <= now_ms;
-    })
-    .map((row) => row.id)
-    .sort(cmpStr);
 }

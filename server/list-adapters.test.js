@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { GRAPH_ISSUES_TYPE } from '../app/data/graph-subscription.js';
-import { shouldDeriveReady } from './bd-version.js';
 import { runBdJson } from './bd.js';
 import { readManifestFingerprint } from './dolt-manifest.js';
 import {
@@ -15,11 +14,9 @@ import {
 } from './list-adapters.js';
 
 vi.mock('./bd.js', () => ({ runBdJson: vi.fn() }));
-vi.mock('./bd-version.js', () => ({ shouldDeriveReady: vi.fn() }));
 vi.mock('./dolt-manifest.js', () => ({ readManifestFingerprint: vi.fn() }));
 
 const runBdJsonMock = /** @type {import('vitest').Mock} */ (runBdJson);
-const deriveMock = /** @type {import('vitest').Mock} */ (shouldDeriveReady);
 const fingerprintMock = /** @type {import('vitest').Mock} */ (
   readManifestFingerprint
 );
@@ -101,9 +98,7 @@ async function fakeBdShow(args) {
 describe('list adapters for subscription types', () => {
   beforeEach(() => {
     runBdJsonMock.mockReset();
-    deriveMock.mockReset();
     fingerprintMock.mockReset();
-    deriveMock.mockResolvedValue(false);
     fingerprintMock.mockReturnValue(null);
   });
 
@@ -365,9 +360,7 @@ describe('list adapters for subscription types', () => {
 describe('open set sharing', () => {
   beforeEach(() => {
     runBdJsonMock.mockReset();
-    deriveMock.mockReset();
     fingerprintMock.mockReset();
-    deriveMock.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -508,10 +501,10 @@ describe('open set sharing', () => {
     }
   });
 
-  test('derived blocked rows keep the list fields and add blocked_by', async () => {
+  test('ready and blocked come from bd ready and bd blocked, not the open set', async () => {
     fingerprintMock.mockReturnValue('fp-1');
-    deriveMock.mockResolvedValue(true);
-    answerBd([
+    // The open set alone would call B-1 ready and B-2 blocked; bd says otherwise.
+    const open_rows = [
       { id: 'B-1', status: 'open', title: 'Gate' },
       {
         id: 'B-2',
@@ -519,29 +512,54 @@ describe('open set sharing', () => {
         title: 'Waits',
         dependencies: [{ depends_on_id: 'B-1', type: 'blocks' }]
       }
-    ]);
-    const cwd = '/ws/derived-fields';
+    ];
+    const ready_rows = [{ id: 'B-3', status: 'open', title: 'Ready per bd' }];
+    const blocked_rows = [
+      {
+        id: 'B-1',
+        status: 'open',
+        title: 'Gate',
+        blocked_by: ['B-0'],
+        blocked_by_count: 1
+      }
+    ];
+    runBdJsonMock.mockImplementation(async (/** @type {string[]} */ args) => {
+      const by_command = {
+        list: open_rows,
+        ready: ready_rows,
+        blocked: blocked_rows
+      };
+      const rows = by_command[/** @type {keyof typeof by_command} */ (args[0])];
+      return rows
+        ? { code: 0, stdoutJson: rows }
+        : { code: 1, stderr: 'unexpected' };
+    });
+    const cwd = '/ws/bd-ready';
 
-    const blocked = await fetchListForSubscription(
-      { type: 'blocked-issues' },
-      { cwd }
-    );
+    await fetchListForSubscription({ type: 'all-issues' }, { cwd });
     const ready = await fetchListForSubscription(
       { type: 'ready-issues' },
       { cwd }
     );
+    const blocked = await fetchListForSubscription(
+      { type: 'blocked-issues' },
+      { cwd }
+    );
 
+    expect(ready.ok && ready.items.map((it) => it.id)).toEqual(['B-3']);
     expect(blocked.ok && blocked.items).toEqual([
       expect.objectContaining({
-        id: 'B-2',
-        title: 'Waits',
-        blocked_by: ['B-1'],
+        id: 'B-1',
+        blocked_by: ['B-0'],
         blocked_by_count: 1
       })
     ]);
-    expect(ready.ok && ready.items.map((it) => it.id)).toEqual(['B-1']);
+    expect(runBdJsonMock).toHaveBeenCalledWith(
+      ['ready', '--limit', String(BD_LIST_LIMIT), '--json'],
+      { cwd }
+    );
+    expect(runBdJsonMock).toHaveBeenCalledWith(['blocked', '--json'], { cwd });
     expect(spawnCount('list')).toBe(1);
-    expect(deriveMock).toHaveBeenCalledWith(cwd);
   });
 });
 

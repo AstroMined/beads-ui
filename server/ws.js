@@ -12,7 +12,6 @@ import {
   makeOk
 } from '../app/protocol.js';
 import { runInBackground } from './bd-priority.js';
-import { resetBdVersion } from './bd-version.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
 import { resolveWorkspaceDatabase } from './db.js';
 import { readManifestFingerprint } from './dolt-manifest.js';
@@ -551,7 +550,6 @@ export function attachWsServer(http_server, options = {}) {
     root_dir: initial_root,
     db_path: initial_db.path
   };
-  resetBdVersion(initial_root);
 
   if (options.watcher) {
     DB_WATCHER = options.watcher;
@@ -648,7 +646,6 @@ export function attachWsServer(http_server, options = {}) {
       root_dir: resolved_root,
       db_path: new_db.path
     };
-    resetBdVersion(resolved_root);
 
     const changed = new_db.path !== old_path;
 
@@ -1551,7 +1548,6 @@ export async function handleMessage(ws, data) {
       root_dir: resolved,
       db_path: new_db.path
     };
-    resetBdVersion(resolved);
 
     const changed = new_db.path !== old_path;
 
