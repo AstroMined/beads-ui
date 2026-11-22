@@ -20,3 +20,6 @@ app/main.bundle.js.map
 
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
+*.gate.lock*
+.beads/.maint/
+.beads/proxieddb/
