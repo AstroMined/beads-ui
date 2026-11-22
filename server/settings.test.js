@@ -23,29 +23,62 @@ vi.mock('node:fs', () => {
     throw err;
   });
   const existsSync = vi.fn(
-    (p) => file_contents.has(String(p)) || p === '/mock-home/.beads'
+    (p) => file_contents.has(String(p)) || p === '/mock-home/.config/beads-ui'
   );
   const watch = vi.fn((dir, _opts, cb) => {
     const w = { close: vi.fn() };
     watchers.push({ dir, cb });
     return w;
   });
-  return {
-    default: { readFileSync, existsSync, watch },
+  const mkdirSync = vi.fn();
+  /**
+   * @param {string} src
+   * @param {string} dest
+   */
+  const move = (src, dest) => {
+    const content = file_contents.get(String(src));
+    if (content === undefined) {
+      const err = /** @type {NodeJS.ErrnoException} */ (
+        new Error(`ENOENT: no such file: ${src}`)
+      );
+      err.code = 'ENOENT';
+      throw err;
+    }
+    file_contents.set(String(dest), content);
+    file_contents.delete(String(src));
+  };
+  const renameSync = vi.fn(move);
+  const copyFileSync = vi.fn((src, dest) => {
+    file_contents.set(String(dest), String(file_contents.get(String(src))));
+  });
+  const unlinkSync = vi.fn((p) => {
+    file_contents.delete(String(p));
+  });
+  const fs_mock = {
     readFileSync,
     existsSync,
-    watch
+    watch,
+    mkdirSync,
+    renameSync,
+    copyFileSync,
+    unlinkSync
   };
+  return { default: fs_mock, ...fs_mock };
 });
+
+const LEGACY_PATH = '/mock-home/.beads/config.json';
+const SETTINGS_PATH = '/mock-home/.config/beads-ui/config.json';
 
 beforeEach(() => {
   file_contents = new Map();
   watchers = [];
+  vi.stubEnv('XDG_CONFIG_HOME', '');
   vi.useFakeTimers();
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -87,6 +120,94 @@ describe('settings', () => {
     });
   });
 
+  describe('getSettingsPath', () => {
+    test('uses XDG_CONFIG_HOME when it is an absolute path', async () => {
+      vi.stubEnv('XDG_CONFIG_HOME', '/xdg');
+      const { getSettingsPath } = await freshImport();
+      expect(getSettingsPath()).toBe('/xdg/beads-ui/config.json');
+    });
+
+    test('falls back to ~/.config when XDG_CONFIG_HOME is unset', async () => {
+      const { getSettingsPath } = await freshImport();
+      expect(getSettingsPath()).toBe(SETTINGS_PATH);
+    });
+
+    test('ignores a relative XDG_CONFIG_HOME', async () => {
+      vi.stubEnv('XDG_CONFIG_HOME', 'relative/config');
+      const { getSettingsPath } = await freshImport();
+      expect(getSettingsPath()).toBe(SETTINGS_PATH);
+    });
+
+    test('loads and watches settings under XDG_CONFIG_HOME', async () => {
+      vi.stubEnv('XDG_CONFIG_HOME', '/xdg');
+      file_contents.set(
+        '/xdg/beads-ui/config.json',
+        JSON.stringify({ server: { port: 4100 } })
+      );
+      const { loadSettings, watchSettings } = await freshImport();
+      expect(loadSettings().server.port).toBe(4100);
+      const handle = watchSettings(vi.fn());
+      expect(watchers[0].dir).toBe('/xdg/beads-ui');
+      handle.close();
+    });
+  });
+
+  describe('legacy ~/.beads/config.json', () => {
+    test('is moved to the settings path once when that file is absent', async () => {
+      file_contents.set(
+        LEGACY_PATH,
+        JSON.stringify({ server: { port: 4200 } })
+      );
+      const fs = await import('node:fs');
+      const { loadSettings } = await freshImport();
+
+      expect(loadSettings().server.port).toBe(4200);
+      expect(file_contents.has(LEGACY_PATH)).toBe(false);
+      expect(file_contents.has(SETTINGS_PATH)).toBe(true);
+      expect(vi.mocked(fs.mkdirSync)).toHaveBeenCalledWith(
+        '/mock-home/.config/beads-ui',
+        { recursive: true }
+      );
+
+      vi.mocked(fs.renameSync).mockClear();
+      loadSettings();
+      expect(vi.mocked(fs.renameSync)).not.toHaveBeenCalled();
+    });
+
+    test('is copied then removed when rename crosses devices', async () => {
+      file_contents.set(
+        LEGACY_PATH,
+        JSON.stringify({ server: { port: 4300 } })
+      );
+      const fs = await import('node:fs');
+      vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+        const err = /** @type {NodeJS.ErrnoException} */ (new Error('EXDEV'));
+        err.code = 'EXDEV';
+        throw err;
+      });
+      const { loadSettings } = await freshImport();
+
+      expect(loadSettings().server.port).toBe(4300);
+      expect(file_contents.has(LEGACY_PATH)).toBe(false);
+      expect(file_contents.has(SETTINGS_PATH)).toBe(true);
+    });
+
+    test('is left alone when the settings file already exists', async () => {
+      file_contents.set(
+        LEGACY_PATH,
+        JSON.stringify({ server: { port: 4400 } })
+      );
+      file_contents.set(
+        SETTINGS_PATH,
+        JSON.stringify({ server: { port: 4500 } })
+      );
+      const { loadSettings } = await freshImport();
+
+      expect(loadSettings().server.port).toBe(4500);
+      expect(file_contents.has(LEGACY_PATH)).toBe(true);
+    });
+  });
+
   describe('loadSettings', () => {
     test('returns DEFAULT_SETTINGS when file is missing', async () => {
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -96,7 +217,7 @@ describe('settings', () => {
 
     test('parses valid config file', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 4000 } })
       );
       const { loadSettings } = await freshImport();
@@ -106,7 +227,7 @@ describe('settings', () => {
     });
 
     test('returns DEFAULT_SETTINGS on malformed JSON', async () => {
-      file_contents.set('/mock-home/.beads/config.json', '{bad json');
+      file_contents.set(SETTINGS_PATH, '{bad json');
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
       const result = loadSettings();
       expect(result).toEqual(DEFAULT_SETTINGS);
@@ -114,7 +235,7 @@ describe('settings', () => {
 
     test('merges partial settings with defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ discovery: { scan_depth: 5 } })
       );
       const { loadSettings } = await freshImport();
@@ -134,7 +255,7 @@ describe('settings', () => {
         }
       ];
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ board: { columns: custom_columns } })
       );
       const { loadSettings } = await freshImport();
@@ -146,7 +267,7 @@ describe('settings', () => {
   describe('getSettings', () => {
     test('returns cached settings after loadSettings', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 5000 } })
       );
       const { loadSettings, getSettings } = await freshImport();
@@ -164,7 +285,7 @@ describe('settings', () => {
   describe('watchSettings', () => {
     test('detects file changes and calls onChange', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       const { loadSettings, watchSettings } = await freshImport();
@@ -176,7 +297,7 @@ describe('settings', () => {
 
       // Simulate file change with new content
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 9999, host: '127.0.0.1' } })
       );
       watchers[0].cb('change', 'config.json');
@@ -188,7 +309,7 @@ describe('settings', () => {
 
     test('does not call onChange when settings are unchanged', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       const { loadSettings, watchSettings } = await freshImport();
@@ -206,7 +327,7 @@ describe('settings', () => {
 
     test('close() stops watching', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       const { loadSettings, watchSettings } = await freshImport();
@@ -218,7 +339,7 @@ describe('settings', () => {
 
       // Change should not trigger after close
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 8888, host: '127.0.0.1' } })
       );
       // Cannot trigger via watcher cb after close, but verify handle returned
@@ -227,7 +348,7 @@ describe('settings', () => {
 
     test('debounces rapid changes', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       const { loadSettings, watchSettings } = await freshImport();
@@ -238,14 +359,14 @@ describe('settings', () => {
 
       // Rapid changes
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 4000, host: '127.0.0.1' } })
       );
       watchers[0].cb('change', 'config.json');
       vi.advanceTimersByTime(50);
 
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 5000, host: '127.0.0.1' } })
       );
       watchers[0].cb('change', 'config.json');
@@ -256,31 +377,35 @@ describe('settings', () => {
       expect(onChange.mock.calls[0][0].server.port).toBe(5000);
     });
 
-    test('returns no-op watcher when settings dir does not exist', async () => {
+    test('creates the settings dir and watches it', async () => {
       const fs = await import('node:fs');
-      const original = vi.mocked(fs.existsSync).getMockImplementation();
-      vi.mocked(fs.existsSync).mockReturnValue(false);
-      try {
-        const { watchSettings } = await freshImport();
-        const onChange = vi.fn();
-        const handle = watchSettings(onChange);
-        expect(handle).toHaveProperty('close');
-        expect(watchers.length).toBe(0);
-        handle.close(); // should not throw
-      } finally {
-        if (original) {
-          vi.mocked(fs.existsSync).mockImplementation(original);
-        } else {
-          vi.mocked(fs.existsSync).mockRestore();
-        }
-      }
+      const { watchSettings } = await freshImport();
+      const handle = watchSettings(vi.fn());
+      expect(vi.mocked(fs.mkdirSync)).toHaveBeenCalledWith(
+        '/mock-home/.config/beads-ui',
+        { recursive: true }
+      );
+      expect(watchers[0].dir).toBe('/mock-home/.config/beads-ui');
+      handle.close();
+    });
+
+    test('returns no-op watcher when the settings dir cannot be created', async () => {
+      const fs = await import('node:fs');
+      vi.mocked(fs.mkdirSync).mockImplementationOnce(() => {
+        throw new Error('EACCES');
+      });
+      const { watchSettings } = await freshImport();
+      const handle = watchSettings(vi.fn());
+      expect(handle).toHaveProperty('close');
+      expect(watchers.length).toBe(0);
+      handle.close(); // should not throw
     });
   });
 
   describe('immutable settings (L1+L2)', () => {
     test('getSettings returns a clone, not the cached reference', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       const { loadSettings, getSettings } = await freshImport();
@@ -315,10 +440,7 @@ describe('settings', () => {
         42,
         { label: 'Missing ID', subscription: 's', drop_status: 'd' }
       ];
-      file_contents.set(
-        '/mock-home/.beads/config.json',
-        JSON.stringify({ board: { columns } })
-      );
+      file_contents.set(SETTINGS_PATH, JSON.stringify({ board: { columns } }));
       const { loadSettings } = await freshImport();
       const result = loadSettings();
       expect(result.board.columns).toEqual([
@@ -333,7 +455,7 @@ describe('settings', () => {
 
     test('falls back to defaults when all columns are invalid', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ board: { columns: [null, {}, 'garbage'] } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -357,10 +479,7 @@ describe('settings', () => {
           drop_status: 'closed'
         }
       ];
-      file_contents.set(
-        '/mock-home/.beads/config.json',
-        JSON.stringify({ board: { columns } })
-      );
+      file_contents.set(SETTINGS_PATH, JSON.stringify({ board: { columns } }));
       const { loadSettings } = await freshImport();
       const result = loadSettings();
       expect(result.board.columns).toHaveLength(2);
@@ -372,7 +491,7 @@ describe('settings', () => {
   describe('discovery validation (L4)', () => {
     test('invalid scan_roots (non-array) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ discovery: { scan_roots: 'not-an-array' } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -384,7 +503,7 @@ describe('settings', () => {
 
     test('invalid scan_roots (array with non-strings) filters them out', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({
           discovery: { scan_roots: ['/valid', 42, null, '/also-valid', ''] }
         })
@@ -396,7 +515,7 @@ describe('settings', () => {
 
     test('empty scan_roots after filtering falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ discovery: { scan_roots: [42, null, ''] } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -408,7 +527,7 @@ describe('settings', () => {
 
     test('invalid scan_depth (negative) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ discovery: { scan_depth: -5 } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -420,7 +539,7 @@ describe('settings', () => {
 
     test('invalid scan_depth (float) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ discovery: { scan_depth: 2.5 } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -432,7 +551,7 @@ describe('settings', () => {
 
     test('invalid scan_depth (string) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ discovery: { scan_depth: 'deep' } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -446,7 +565,7 @@ describe('settings', () => {
   describe('server validation (L5)', () => {
     test('invalid port (string) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 'banana' } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -456,7 +575,7 @@ describe('settings', () => {
 
     test('invalid port (negative) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: -1 } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -466,7 +585,7 @@ describe('settings', () => {
 
     test('invalid port (> 65535) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 70000 } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -476,7 +595,7 @@ describe('settings', () => {
 
     test('invalid host (non-string) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { host: 12345 } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -486,7 +605,7 @@ describe('settings', () => {
 
     test('invalid host (empty string) falls back to defaults', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { host: '' } })
       );
       const { loadSettings, DEFAULT_SETTINGS } = await freshImport();
@@ -574,7 +693,7 @@ describe('settings', () => {
   describe('getEffectiveSettings', () => {
     test('project columns replace global columns', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({
           server: { port: 3000, host: '127.0.0.1' }
         })
@@ -599,7 +718,7 @@ describe('settings', () => {
 
     test('falls back to global when no project settings', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       const { loadSettings, getEffectiveSettings, DEFAULT_SETTINGS } =
@@ -611,7 +730,7 @@ describe('settings', () => {
 
     test('falls back to global when project columns are invalid', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
       );
       file_contents.set(
@@ -806,7 +925,7 @@ describe('settings', () => {
   describe('config integration', () => {
     test('getConfig uses settings for port when env var not set', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 7777 } })
       );
       const { loadSettings } = await freshImport();
@@ -825,7 +944,7 @@ describe('settings', () => {
 
     test('env var overrides settings for port', async () => {
       file_contents.set(
-        '/mock-home/.beads/config.json',
+        SETTINGS_PATH,
         JSON.stringify({ server: { port: 7777 } })
       );
       const { loadSettings } = await freshImport();

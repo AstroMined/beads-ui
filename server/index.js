@@ -34,7 +34,7 @@ for (let i = 0; i < process.argv.length; i++) {
   }
 }
 
-// Load settings from ~/.beads/config.json before config resolution
+// Load global settings (getSettingsPath) before config resolution
 const settings = loadSettings();
 const config = getConfig(settings);
 const app = createApp(config);

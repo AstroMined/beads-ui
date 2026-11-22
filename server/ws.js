@@ -21,6 +21,7 @@ import { getAvailableWorkspaces } from './registry-watcher.js';
 import {
   getEffectiveSettings,
   getSettings,
+  getSettingsPath,
   loadProjectSettings,
   validateColumnDef
 } from './settings.js';
@@ -1645,8 +1646,7 @@ export async function handleMessage(ws, data) {
     /** @type {string} */
     let target_path;
     if (scope === 'global') {
-      const os = await import('node:os');
-      target_path = path.join(os.homedir(), '.beads', 'config.json');
+      target_path = getSettingsPath();
     } else {
       if (!CURRENT_WORKSPACE) {
         ws.send(

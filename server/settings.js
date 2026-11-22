@@ -56,23 +56,67 @@ export const DEFAULT_SETTINGS = {
   discovery: { scan_roots: [], scan_depth: 2 }
 };
 
-const SETTINGS_PATH = path.join(os.homedir(), '.beads', 'config.json');
+/**
+ * Global settings file: `$XDG_CONFIG_HOME/beads-ui/config.json`, or
+ * `~/.config/beads-ui/config.json` when XDG_CONFIG_HOME is unset or relative.
+ * Not under `~/.beads/`: bd treats `.beads/config.json` as legacy metadata and
+ * renames it to `metadata.json` whenever its upward search reaches HOME.
+ *
+ * @returns {string}
+ */
+export function getSettingsPath() {
+  const xdg = process.env.XDG_CONFIG_HOME;
+  const config_home =
+    xdg && path.isAbsolute(xdg) ? xdg : path.join(os.homedir(), '.config');
+  return path.join(config_home, 'beads-ui', 'config.json');
+}
+
+/**
+ * Move a legacy `~/.beads/config.json` to the settings path once, when the
+ * settings file does not exist yet.
+ *
+ * @param {string} settings_path
+ */
+function migrateLegacySettings(settings_path) {
+  const legacy_path = path.join(os.homedir(), '.beads', 'config.json');
+  if (fs.existsSync(settings_path) || !fs.existsSync(legacy_path)) {
+    return;
+  }
+  try {
+    fs.mkdirSync(path.dirname(settings_path), { recursive: true });
+    try {
+      fs.renameSync(legacy_path, settings_path);
+    } catch (err) {
+      if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'EXDEV') {
+        throw err;
+      }
+      fs.copyFileSync(legacy_path, settings_path);
+      fs.unlinkSync(legacy_path);
+    }
+    log('moved legacy settings %s to %s', legacy_path, settings_path);
+  } catch (err) {
+    log('warning: failed to move legacy settings %s: %o', legacy_path, err);
+  }
+}
 
 /** @type {SettingsObject} */
 let cached = structuredClone(DEFAULT_SETTINGS);
 
 /**
- * Load settings from ~/.beads/config.json.
+ * Load settings from the global settings file (`getSettingsPath`), moving a
+ * legacy `~/.beads/config.json` there first.
  * Falls back to DEFAULT_SETTINGS on missing or corrupt file.
  *
  * @returns {SettingsObject}
  */
 export function loadSettings() {
+  const settings_path = getSettingsPath();
+  migrateLegacySettings(settings_path);
   try {
-    const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const raw = fs.readFileSync(settings_path, 'utf8');
     const parsed = JSON.parse(raw);
     cached = mergeDefaults(parsed);
-    log('loaded settings from %s', SETTINGS_PATH);
+    log('loaded settings from %s', settings_path);
   } catch (err) {
     if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
       log('warning: failed to parse settings file, using defaults: %o', err);
@@ -92,7 +136,8 @@ export function getSettings() {
 }
 
 /**
- * Watch ~/.beads/config.json for changes and invoke callback with new settings.
+ * Watch the global settings file for changes and invoke callback with new
+ * settings. Creates the settings directory so a first save is picked up.
  * Follows the registry-watcher.js pattern with debounce.
  *
  * @param {(settings: SettingsObject) => void} onChange
@@ -101,8 +146,9 @@ export function getSettings() {
  */
 export function watchSettings(onChange, options = {}) {
   const debounce_ms = options.debounce_ms ?? 500;
-  const settings_dir = path.dirname(SETTINGS_PATH);
-  const settings_file = path.basename(SETTINGS_PATH);
+  const settings_path = getSettingsPath();
+  const settings_dir = path.dirname(settings_path);
+  const settings_file = path.basename(settings_path);
 
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let timer;
@@ -131,10 +177,7 @@ export function watchSettings(onChange, options = {}) {
   };
 
   try {
-    if (!fs.existsSync(settings_dir)) {
-      log('settings directory does not exist: %s', settings_dir);
-      return { close() {} };
-    }
+    fs.mkdirSync(settings_dir, { recursive: true });
 
     // persistent:true keeps the Node.js process alive, which is intentional
     // for a long-running server that should not exit when idle.

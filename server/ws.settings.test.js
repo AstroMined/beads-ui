@@ -33,7 +33,9 @@ vi.mock('node:fs', () => {
     throw err;
   });
   const existsSync = vi.fn(
-    (p) => file_contents.has(String(p)) || String(p) === '/mock-home/.beads'
+    (p) =>
+      file_contents.has(String(p)) ||
+      String(p) === '/mock-home/.config/beads-ui'
   );
   const watch = vi.fn(() => ({ close: vi.fn() }));
   const mkdirSync = vi.fn();
@@ -129,7 +131,7 @@ describe('get-settings handler', () => {
   test('returns effective settings with project override when workspace is active', async () => {
     // Set up global settings
     file_contents.set(
-      '/mock-home/.beads/config.json',
+      '/mock-home/.config/beads-ui/config.json',
       JSON.stringify({ server: { port: 3000, host: '127.0.0.1' } })
     );
     // Set up project settings with custom columns
@@ -269,7 +271,7 @@ describe('save-settings handler', () => {
     const reply = JSON.parse(ws.sent[0]);
     expect(reply.ok).toBe(true);
     expect(
-      written_files.some((f) => f === '/mock-home/.beads/config.json')
+      written_files.some((f) => f === '/mock-home/.config/beads-ui/config.json')
     ).toBe(true);
   });
 
