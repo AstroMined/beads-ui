@@ -4,8 +4,15 @@
 
 ## SESSION CLOSE PROTOCOL
 
-Before saying "done", run `bd dolt pull && bd dolt push` (pull first so the push is never
-rejected non-fast-forward). Skip only when the project has no Dolt remote.
+The per-host bd sync timer syncs this store with its `hub` remote, then `origin`, so a session
+ends with no sync step of its own. When your writes must reach the other host before the
+timer's next tick, run `~/.claude/bin/pipeline-check.py dolt-sync --json` (the only sync allowed
+while a feature is executing; outside a pipeline repo, `bd sync --remote hub` then
+`bd sync --remote origin`). It exits 0 when synced or with nothing to sync, and 2 when a sync
+failed, its stderr carrying bd sync's exit: SYNC_CONFLICT (a merge conflict, nothing pushed:
+resolve it by hand), 3 (push retries exhausted, retry later) or SYNC_STUCK (a dirty working set
+an operator clears); `bd sync --help` defines each. Never sync by hand with `bd dolt`
+subcommands.
 
 <!-- BEGIN PROJECT-LOCAL -->
 <!-- Generated block. Do not edit here. Edit .beads/PRIME.local.md in this repo,
@@ -16,6 +23,11 @@ rejected non-fast-forward). Skip only when the project has no Dolt remote.
 the `refs/dolt/data` ref in that repository, out-of-band from the code branches.
 
 <!-- END PROJECT-LOCAL -->
+
+**Note:** This store is a database on the host's shared dolt sql-server. Its Dolt remotes are
+`hub` (`http://127.0.0.1:3419/<database>`, the hub host's remotesapi, which a replica reaches
+through its ssh tunnel) and `origin` (the repo's git remote), and the per-host bd sync timer
+syncs it with each one it has. `.beads/issues.jsonl` is not a sync path.
 
 **Note:** Dolt auto-commit is enabled; every `bd` write is a Dolt commit.
 
@@ -69,7 +81,8 @@ A PreToolUse hook (`~/.claude/hooks/bd-write-guard.py`) refuses, and shows you t
 not route around it:
 
 - `bd edit` (it opens an editor), `bd update --notes` (it replaces the whole field; use
-  `--append-notes`), `bd import`, `bd sql`, and `bd create -f`/`--file`/`--graph`;
+  `--append-notes`), `bd import`, `bd sql`, `bd create -f`/`--file`/`--graph`, and
+  `bd create-form` (an interactive form a tool call cannot drive; use inline `bd create`);
 - an off-format write: a `bd create`, a `bd update` of title, description or acceptance, or a
   note that breaks bead format v1, named by its BF rule;
 - content it cannot read: a `$VAR`, a `$(...)` that is not a quoted heredoc, `--stdin`, or a
@@ -77,7 +90,9 @@ not route around it:
 
 `pipeline-check.py bead-lint <id>...` (or `--open`) checks existing beads against v1 and exits
 3 on a violation; `--fix` rewrites what it can on open beads. Closed beads are never checked or
-modified. A bead over about 64 KiB of JSON can only be closed, so keep beads short.
+modified. A pipeline write leaving a bead over 16,384 KiB of JSON, or passing bd one field or
+note over 131,071 bytes (the longest argument Linux starts a program with), is refused, so keep
+beads short.
 
 ### Example
 
@@ -122,28 +137,38 @@ bd close proj-a1b.2.1 --reason="Wrapper landed in a1b2c3d; unit and integration 
 IDs are `<project>-<hash>`; children append `.N`. Always use full IDs (a short suffix is
 ambiguous once an epic has children).
 
-- `bd ready` / `bd list --status=open` / `bd show <id>` - find and read work
+- `bd ready` / `bd list --status=open` / `bd show <id>` - find and read work;
+  `bd ready --explain` names what blocks each bead
 - `bd create --title="..." --type=task|bug|chore --priority=2 --parent=<id>` plus the v1
   fields (priority is `0-4`, never "high"/"low")
-- `bd update <id> --status=in_progress` - claim; `--append-notes="DECISION: ..."` - record
+- `bd update <id> --claim` - the atomic claim of a bead with no pipeline stage, which the
+  claim-stamp hook records through `pipeline-check.py claim`; a staged pipeline bead moves only
+  through `pipeline-check.py advance`
+- `bd note <id> "DECISION: ..."` or `bd update <id> --append-notes="DECISION: ..."` - record
 - `bd close <id> --reason="..."` - always give a reason
 - `bd dep add <issue> <depends-on>` - blocking dependency; `bd children <epic>`; `bd blocked`
 - Never `bd edit` (opens `$EDITOR`); never `bd update --notes` (replaces the field)
-- `bd dolt pull` then `bd dolt push` to sync
+- The bd sync timer syncs; `~/.claude/bin/pipeline-check.py dolt-sync --json` when a write
+  cannot wait for it (SESSION CLOSE above)
 
 ## Parent-child vs dependencies
 
 - `--parent` is containment; `bd dep add` is ordering. Never dep-link a task to its own
   parent, and never wire a `blocks` edge from a bead onto its own ancestor (self-deadlock).
-- **A `blocks` edge on a parent hides every child from `bd ready`** (bd 0.63.3). An empty
-  `bd ready` is ambiguous: check `bd dep list <parent>` before concluding no work exists.
+- **A `blocks` edge on a parent hides every child from `bd ready`** (re-verified on bd 1.3.4,
+  2026-11-14). An empty `bd ready` is ambiguous: before concluding no work exists, run
+  `bd ready --explain`, which names each blocked bead's blocker (a child names its parent),
+  then `bd recompute-blocked` if `is_blocked` looks stale (a conflict resolved by hand can
+  leave it so), and `bd ready` again.
 - Max four levels: feature -> epic -> task -> subtask.
 
 ## Reference
 
 Types: `feature` (scope container), `epic`, `task`, `bug`, `chore`, `observation`. Statuses:
-`open`, `in_progress`, `in_review` (custom; absent from `bd ready`, query with
-`bd list --status=in_review`), `blocked`, `closed`.
+bd 1.3.4's built-ins `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hooked`
+(`bd statuses`), plus the custom `in_review` (absent from `bd ready`, query with
+`bd list --status=in_review`). A pipeline stage derives only `open`, `in_progress`,
+`in_review` or `closed`.
 
 A pipeline bead keeps its stage in metadata (`stage`); its status and assignee are derived from
 type and stage (`~/.claude/hooks/bd_rules.py`), the assignee naming the actor that moves it
